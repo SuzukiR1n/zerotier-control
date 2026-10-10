@@ -115,6 +115,20 @@ web_image() {
     docker build -t zerotier-control:local .
   fi
 }
+pull_gateway() {
+  local policy="${1:-missing}" attempt code
+  # Fetch before creating/recreating containers. A failed pull is safe to retry.
+  for attempt in 1 2 3; do
+    printf '准备网页入口镜像（第 %s/3 次）……\n' "$attempt"
+    if compose pull --policy "$policy" gateway; then return 0; else code=$?; fi
+    if [[ "$code" -eq 130 || "$code" -eq 143 ]]; then return "$code"; fi
+    if [[ "$attempt" -lt 3 ]]; then
+      printf '镜像拉取失败，%s 秒后重试。已下载的完整镜像层会复用。\n' "$((attempt * 5))" >&2
+      sleep "$((attempt * 5))"
+    fi
+  done
+  fail '网页入口镜像连续 3 次拉取失败。配置和数据已保留。请检查 Docker 的网络、代理或镜像源；恢复后运行 bash deploy.sh install 继续。'
+}
 helper() {
   docker run --rm --user 0:0 --network none --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add FOWNER --security-opt no-new-privileges:true \
     --mount "type=bind,src=$ROOT,dst=/work" --workdir /work --entrypoint node \
@@ -203,8 +217,9 @@ install_stack() {
   else configure; fi
   load_config
   helper password
+  pull_gateway
   printf '构建并启动 ZeroTier、Planet 和新 Web；首次编译可能需要数分钟……\n'
-  compose up -d --build --wait --wait-timeout 180
+  compose up -d --build --pull never --wait --wait-timeout 180
   export_planet
   info
 }
@@ -217,17 +232,19 @@ update_stack() {
   fi
   backup
   if [[ "$SKIP_PULL" == false ]]; then git pull --ff-only; fi
+  pull_gateway always
   compose build --pull
-  compose up -d --force-recreate --wait --wait-timeout 180
+  compose up -d --force-recreate --pull never --wait --wait-timeout 180
   export_planet
   info
 }
 reset_password() {
+  pull_gateway
   mkdir -p backups
   cp "$ADMIN_PASSWORD_PATH" "backups/admin-password-$(date -u +%Y%m%dT%H%M%SZ)-$$"
   helper password --reset
   # Recreate bind mounts because resetting the file uses an atomic rename.
-  compose up -d --force-recreate --wait --wait-timeout 180 control gateway
+  compose up -d --force-recreate --pull never --wait --wait-timeout 180 control gateway
   printf '密码已重置，旧的网页登录会话已失效。\n'
   info
 }

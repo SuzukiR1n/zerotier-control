@@ -207,6 +207,19 @@ docker compose up -d --force-recreate --wait
 
 重新生成会保留节点身份和签名密钥；为确保所有客户端接入新地址，应重新下载、分发客户端文件。缺少一份签名密钥时不会自动创建新密钥，需恢复完整备份。
 
+## 镜像下载中断
+
+如果下载 `nginx:stable-alpine` 时出现 `unexpected EOF`、`short read` 或超时，说明 Docker 没有取得完整下载结果；具体原因可能在网络、代理或镜像源。脚本会在启动容器前拉取网页入口镜像，失败时最多尝试 3 次，间隔 5 秒和 10 秒；全部失败后保留配置和数据并退出。
+
+网络恢复后，在项目目录执行：
+
+```sh
+git pull --ff-only
+bash deploy.sh install
+```
+
+旧版脚本也可先执行 `docker compose pull gateway`，成功后再运行 `bash deploy.sh install`。已下载的完整镜像层会复用；不用重新填写公网 IP。若持续失败，检查服务器 Docker 守护进程使用的代理或镜像源；仅设置当前终端的代理不一定影响 Docker 拉取。[Docker 镜像拉取与代理说明](https://docs.docker.com/reference/cli/docker/image/pull/)
+
 ## 仅体验 Web 界面
 
 本机安装 Node.js 24 后运行 `npm run demo`，访问 <http://127.0.0.1:8080>。或使用：
@@ -227,7 +240,7 @@ python3 -m unittest discover -s test -p '*_test.py'
 
 受限 Windows 环境不能创建测试子进程时，可用 `node --test --test-isolation=none test/app.test.js test/planet.test.js test/deploy-config.test.js`。
 
-GitHub Actions 检查部署脚本语法和 ShellCheck，测试登录、会话、CSRF、频率限制、校验和网络成员操作。真实容器流程通过 `deploy.sh` 完成首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥完整、旧密码失效，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
+GitHub Actions 检查部署脚本语法和 ShellCheck，测试登录、会话、CSRF、频率限制、校验和网络成员操作。真实容器流程通过 `deploy.sh` 完成首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥完整、旧密码失效，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。额外模拟镜像拉取两次失败后恢复、持续失败后退出，确认重试可继续安装且失败时不重建已有容器。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
 
 CI 使用隔离的测试地址和随机运行时身份，不证明实际公网线路、NAT 穿透或跨地区稳定性。部署后仍应在自己的设备上确认连接。
 
