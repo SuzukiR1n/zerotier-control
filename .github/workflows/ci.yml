@@ -57,11 +57,11 @@ jobs:
           sudo bash deploy.sh downloads --docker-registry 127.0.0.1:5000 --github-proxy direct
           sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --ip 172.30.0.2 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js
+          sudo "$node_binary" test/container-check.js
           docker create --name zt-client-ci --network control-ci_default --cap-add NET_ADMIN --device /dev/net/tun --entrypoint zerotier-one zerotier-control-planet:1.16.2 -U -p9993 /var/lib/zerotier-one
           docker cp /tmp/zt-control-ci/planet zt-client-ci:/var/lib/zerotier-one/planet
           docker start zt-client-ci
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/client-check.js
+          sudo "$node_binary" test/client-check.js
           docker rm -f zt-client-ci
           before_containers="$(sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml ps -q | sort)"
           sudo sh -c ': > /tmp/zt-control-ci/pull-fault/permanent; echo 0 > /tmp/zt-control-ci/pull-fault/attempts'
@@ -70,15 +70,15 @@ jobs:
           fi
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
           test "$before_containers" = "$(sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml ps -q | sort)"
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/container-check.js --after-restart
           echo 'Pull retries recovered after two faults; permanent failure preserved running containers.'
           sudo bash deploy.sh install --compose-file deploy/compose.ci.yaml
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/container-check.js --after-restart
           sudo bash deploy.sh update --skip-pull --compose-file deploy/compose.ci.yaml
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/container-check.js --after-restart
           sudo bash deploy.sh reset-password --compose-file deploy/compose.ci.yaml
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/container-check.js --after-reset
           sudo "$node_binary" test/deployment-check.js
           sudo bash deploy.sh uninstall --compose-file deploy/compose.ci.yaml
           sudo bash deploy.sh install --compose-file deploy/compose.ci.yaml
-          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/container-check.js --after-restart

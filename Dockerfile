@@ -8,6 +8,7 @@ COPY --chown=node:node package.json ./
 COPY --chown=node:node server ./server
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts/health.js ./scripts/health.js
+COPY --chown=node:node scripts/reset-account.js ./scripts/reset-account.js
 USER node
 ENV HOST=0.0.0.0 PORT=8080 DATA_DIR=/app/data
 EXPOSE 8080

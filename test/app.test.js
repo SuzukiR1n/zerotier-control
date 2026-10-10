@@ -42,18 +42,19 @@ test('patch validation refuses malformed values, unknown fields and mismatched a
   assert.throws(() => networkPatch(JSON.parse('{"__proto__":{}}')));
   assert.deepEqual(networkPatch({ v4AssignMode: { zt: true } }), { v4AssignMode: { zt: true } });
 });
-test('production requires credentials and rejects API reads without login', async t => {
-  await assert.rejects(createApp({ demo: false }), /ADMIN_PASSWORD/);
+test('production defaults to admin and rejects API reads without login', async t => {
   const f = await fixture(t, { demo: false, passwordHash: await passwordHash('only-a-test-password') });
   assert.equal((await f.call('/networks')).res.status, 401);
   assert.equal((await f.call('/session')).data.authenticated, false);
 });
 test('login creates HttpOnly session, enforces CSRF and logout invalidates session', async t => {
   const f = await fixture(t, { demo: false, passwordHash: await passwordHash('only-a-test-password'), controller: new DemoController() });
-  assert.equal((await f.call('/login', 'POST', { password: 'incorrect' })).res.status, 401);
-  const logged = await f.call('/login', 'POST', { password: 'only-a-test-password' });
+  assert.equal((await f.call('/login', 'POST', { username: 'admin', password: 'incorrect' })).res.status, 401);
+  const logged = await f.call('/login', 'POST', { username: 'admin', password: 'only-a-test-password' });
   assert.equal(logged.res.status, 200);
   assert.match(logged.res.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+  assert.equal(logged.data.mustChangeCredentials, true);
+  await f.call('/account', 'POST', { username: 'operator', password: 'a-new-test-password', confirmPassword: 'a-new-test-password' });
   assert.equal((await f.call('/networks')).res.status, 200);
   assert.equal((await f.call('/networks', 'POST', { name: 'Test', cidr: '10.0.0.0/24' }, { 'X-CSRF-Token': 'wrong' })).res.status, 403);
   assert.equal((await f.call('/logout', 'POST', {})).res.status, 200);
@@ -63,7 +64,7 @@ test('cross-site login and unsafe requests are rejected, HTTPS cookies are Secur
   const f = await fixture(t, { origin: 'https://control.example.com' });
   const s = await f.call('/session');
   assert.match(s.res.headers.get('set-cookie'), /; Secure/);
-  assert.equal((await f.call('/login', 'POST', { password: 'anything' }, { Origin: 'https://evil.example' })).res.status, 403);
+  assert.equal((await f.call('/login', 'POST', { username: 'admin', password: 'anything' }, { Origin: 'https://evil.example' })).res.status, 403);
   assert.equal((await f.call('/networks', 'POST', { name: 'Test', cidr: '10.0.0.0/24' }, { 'Sec-Fetch-Site': 'cross-site' })).res.status, 403);
 });
 test('create, edit, member authorize, address assignment, export and delete work through HTTP', async t => {
@@ -107,8 +108,8 @@ test('static resources have security headers and secrets cannot be read by a pat
 });
 test('login brute force is limited', async t => {
   const f = await fixture(t, { demo: false, passwordHash: await passwordHash('only-a-test-password') });
-  for (let i = 0; i < 10; i++) assert.equal((await f.call('/login', 'POST', { password: 'wrong' })).res.status, 401);
-  assert.equal((await f.call('/login', 'POST', { password: 'wrong' })).res.status, 429);
+  for (let i = 0; i < 10; i++) assert.equal((await f.call('/login', 'POST', { username: 'admin', password: 'wrong' })).res.status, 401);
+  assert.equal((await f.call('/login', 'POST', { username: 'admin', password: 'wrong' })).res.status, 429);
 });
 
 test('real adapter follows 1.14.1 stable member revision map and sends partial updates with server-side token', async t => {

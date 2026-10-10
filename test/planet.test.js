@@ -19,8 +19,12 @@ test('Planet exposes only public metadata and authenticated binary download', as
   t.after(async () => { app.server.closeAllConnections(); await new Promise(resolve => app.server.close(resolve)); });
   const base = `http://127.0.0.1:${app.server.address().port}`;
   assert.equal((await fetch(base + '/api/planet/download')).status, 401);
-  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'only-test-password' }) });
-  const headers = { Cookie: login.headers.get('set-cookie').split(';')[0] };
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'only-test-password' }) });
+  const restricted = { Cookie: login.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json', 'X-CSRF-Token': (await login.json()).csrf };
+  assert.equal((await fetch(base + '/api/planet/download', { headers: restricted })).status, 403);
+  const changed = await fetch(base + '/api/account', { method: 'POST', headers: restricted, body: JSON.stringify({ username: 'operator', password: 'new-planet-test-password', confirmPassword: 'new-planet-test-password' }) });
+  assert.equal(changed.status, 200);
+  const headers = { Cookie: changed.headers.get('set-cookie').split(';')[0] };
   const info = await fetch(base + '/api/planet', { headers }).then(r => r.json());
   assert.equal(info.available, true); assert.equal(info.size, bytes.length); assert.equal(info.sha256.length, 64);
   assert.ok(!JSON.stringify(info).includes('must-not-leak')); assert.ok(!Object.hasOwn(info, 'bytes'));

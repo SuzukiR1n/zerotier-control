@@ -7,8 +7,8 @@ for (let i = 0; i < 30; i++) { try { cli('-j', 'info'); break; } catch { await n
 const memberId = JSON.parse(cli('-j', 'info')).address;
 cli('join', networkId);
 const base = 'http://127.0.0.1:8080';
-const password = (await readFile(process.env.TEST_ADMIN_PASSWORD_PATH || '/tmp/zt-control-ci/password', 'utf8')).trim();
-const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+const credentials = JSON.parse(await readFile('/tmp/zt-control-ci/web-account.json', 'utf8'));
+const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials) });
 assert.equal(login.status, 200);
 const headers = { Cookie: login.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json', 'X-CSRF-Token': (await login.json()).csrf };
 let appeared = false;
@@ -31,4 +31,4 @@ assert.ok(network.assignedAddresses.some(ip => ip.startsWith('10.42.0.')));
 const root = JSON.parse(cli('-j', 'listpeers')).find(p => p.address === address);
 assert.equal(root?.role, 'PLANET');
 assert.ok(root.paths.some(p => p.active));
-console.log('Real ZeroTier 1.16.2 client → private Planet → pending member → Web authorization → assigned IP / OK passed.');
+console.log('Real ZeroTier 1.16.2 client �� private Planet �� pending member �� Web authorization �� assigned IP / OK passed.');

@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile, stat } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensurePassword, installationConfig, parseConfig, validateConfig } from '../scripts/deploy-config.js';
+import { isPasswordHash, matches } from '../server/account.js';
 
 test('installer config supports public IP, local tunnel and HTTPS with consistent binding/cookies', () => {
   const publicConfig = installationConfig({ ip: '203.0.113.20' });
@@ -32,23 +33,29 @@ test('installer refuses malformed endpoints, unsafe env values and credential pa
   assert.equal(legacy.WEB_BIND_ADDRESS, '127.0.0.1');
   assert.equal(legacy.PUBLIC_ORIGIN, 'http://localhost:8080');
 });
-test('password generation preserves an existing secret, resets explicitly and refuses symlinks', async t => {
+test('bootstrap defaults to admin, preserves legacy secrets and resets explicitly without following symlinks', async t => {
   const root = await mkdtemp(join(tmpdir(), 'zt-deploy-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const config = installationConfig({ ip: '203.0.113.20' });
   await ensurePassword(root, config);
   const file = join(root, 'secrets', 'admin-password');
   const before = await readFile(file);
-  assert.ok(before.toString().trim().length >= 24);
+  assert.ok(isPasswordHash(before.toString().trim()));
+  assert.ok(await matches('admin', before.toString().trim()));
   await ensurePassword(root, config);
   assert.ok(before.equals(await readFile(file)), 'Repeated install must preserve the password');
+  await writeFile(file, 'existing-legacy-password\n');
+  await ensurePassword(root, config);
+  const migrated = (await readFile(file, 'utf8')).trim();
+  assert.ok(isPasswordHash(migrated));
+  assert.ok(await matches('existing-legacy-password', migrated));
   await ensurePassword(root, config, true);
-  assert.ok(!before.equals(await readFile(file)), 'Explicit reset must change the password');
+  assert.ok(await matches('admin', (await readFile(file, 'utf8')).trim()));
   if (process.platform !== 'win32') {
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     const outside = join(root, 'outside'); await writeFile(outside, 'untouched');
     const link = join(root, 'secrets', 'link'); await symlink(outside, link);
-    await assert.rejects(ensurePassword(root, { ...config, ADMIN_PASSWORD_PATH: './secrets/link' }, true), /符号链接/);
+    await assert.rejects(ensurePassword(root, { ...config, ADMIN_PASSWORD_PATH: './secrets/link' }, true), /��������/);
     assert.equal(await readFile(outside, 'utf8'), 'untouched');
   }
 });
