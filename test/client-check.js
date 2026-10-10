@@ -7,7 +7,8 @@ for (let i = 0; i < 30; i++) { try { cli('-j', 'info'); break; } catch { await n
 const memberId = JSON.parse(cli('-j', 'info')).address;
 cli('join', networkId);
 const base = 'http://127.0.0.1:8080';
-const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'ci-admin-password-only' }) });
+const password = (await readFile(process.env.TEST_ADMIN_PASSWORD_PATH || '/tmp/zt-control-ci/password', 'utf8')).trim();
+const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
 assert.equal(login.status, 200);
 const headers = { Cookie: login.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json', 'X-CSRF-Token': (await login.json()).csrf };
 let appeared = false;

@@ -10,7 +10,6 @@ jobs:
     timeout-minutes: 25
     env:
       PLANET_ENDPOINTS: 172.30.0.2/9993
-      ADMIN_PASSWORD_PATH: /tmp/zt-control-ci/password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,6 +18,10 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: python3 -m unittest discover -s test -p '*_test.py'
+      - name: Validate installer shell
+        run: |
+          bash -n deploy.sh
+          shellcheck deploy.sh
       - name: Validate Compose configurations
         run: |
           docker compose config --quiet
@@ -37,17 +40,22 @@ jobs:
       - name: Fresh Planet and actual ZeroTier 1.16.2 integration
         run: |
           mkdir -p /tmp/zt-control-ci
-          printf '%s\n' 'ci-admin-password-only' > /tmp/zt-control-ci/password
-          chmod 600 /tmp/zt-control-ci/password
-          sudo chown root:root /tmp/zt-control-ci/password
-          trap 'docker logs zt-client-ci || true; docker rm -f zt-client-ci || true; docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml logs; docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down -v' EXIT
-          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml up -d --build --wait --wait-timeout 120
-          node test/container-check.js
+          node_binary="$(command -v node)"
+          trap 'docker logs zt-client-ci || true; docker rm -f zt-client-ci || true; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml logs; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down -v' EXIT
+          sudo bash deploy.sh install --ip 172.30.0.2 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js
           docker create --name zt-client-ci --network control-ci_default --cap-add NET_ADMIN --device /dev/net/tun --entrypoint zerotier-one zerotier-control-planet:1.16.2 -U -p9993 /var/lib/zerotier-one
           docker cp /tmp/zt-control-ci/planet zt-client-ci:/var/lib/zerotier-one/planet
           docker start zt-client-ci
-          node test/client-check.js
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/client-check.js
           docker rm -f zt-client-ci
-          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down
-          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml up -d --wait --wait-timeout 120
-          node test/container-check.js --after-restart
+          sudo bash deploy.sh install --compose-file deploy/compose.ci.yaml
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo bash deploy.sh update --skip-pull --compose-file deploy/compose.ci.yaml
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo bash deploy.sh reset-password --compose-file deploy/compose.ci.yaml
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
+          sudo "$node_binary" test/deployment-check.js
+          sudo bash deploy.sh uninstall --compose-file deploy/compose.ci.yaml
+          sudo bash deploy.sh install --compose-file deploy/compose.ci.yaml
+          sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js --after-restart
