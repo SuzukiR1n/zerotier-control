@@ -19,12 +19,16 @@ download_config
 GITHUB_PROXY_OPTION=direct
 download_options
 [[ -z "$GITHUB_PROXY" ]]
+# These payloads must stay literal; expanding them would defeat the injection test.
+# shellcheck disable=SC2016
 for invalid in 'http://registry.example.com' 'user:password@host' 'host/library' '$(touch injected)'; do
   if ( DOCKER_REGISTRY="$invalid"; validate_download_config ); then fail 'Invalid registry was accepted'; fi
 done
+# shellcheck disable=SC2016
 for invalid in 'http://proxy.example.com' 'https://user:pass@host' 'https://host?token=x' '$(touch injected)'; do
   if ( GITHUB_PROXY="$invalid"; validate_download_config ); then fail 'Invalid proxy was accepted'; fi
 done
+# shellcheck disable=SC2016
 printf 'DOCKER_REGISTRY=$(touch %s/injected)\nGITHUB_PROXY=\n' "$ROOT" > "$ROOT/.download.env"
 if (download_config); then fail 'Unsafe download config was accepted'; fi
 [[ ! -e "$ROOT/injected" ]]
