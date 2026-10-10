@@ -10,7 +10,7 @@
     "demo": "node server/index.js --demo",
     "dev": "node --watch --env-file-if-exists=.env server/index.js",
     "check": "node scripts/check.js",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-timeout=30000 test/*.test.js",
     "password": "node scripts/password.js"
   },
   "license": "MIT"
