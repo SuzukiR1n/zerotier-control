@@ -22,7 +22,9 @@ jobs:
         run: |
           bash -n deploy.sh
           bash -n test/docker-pull-fault.sh
-          shellcheck deploy.sh test/docker-pull-fault.sh
+          bash -n deploy/downloads.sh
+          shellcheck deploy.sh deploy/downloads.sh test/docker-pull-fault.sh test/downloads_test.sh planet/download-source.sh
+          bash test/downloads_test.sh
       - name: Validate Compose configurations
         run: |
           docker compose config --quiet
@@ -45,7 +47,14 @@ jobs:
           cp test/docker-pull-fault.sh /tmp/zt-control-ci/bin/docker
           chmod +x /tmp/zt-control-ci/bin/docker
           node_binary="$(command -v node)"
-          trap 'docker logs zt-client-ci || true; docker rm -f zt-client-ci || true; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml logs; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down -v' EXIT
+          trap 'docker logs zt-client-ci || true; docker rm -f zt-client-ci || true; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml logs; sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down -v; docker rm -f registry-ci || true' EXIT
+          docker run -d --name registry-ci -p 127.0.0.1:5000:5000 registry:2
+          for image in node:24-bookworm-slim debian:bookworm-slim python:3.13-slim-bookworm nginx:stable-alpine; do
+            docker pull "docker.io/library/$image"
+            docker tag "docker.io/library/$image" "127.0.0.1:5000/library/$image"
+            docker push "127.0.0.1:5000/library/$image"
+          done
+          sudo bash deploy.sh downloads --docker-registry 127.0.0.1:5000 --github-proxy direct
           sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --ip 172.30.0.2 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
           sudo env TEST_ADMIN_PASSWORD_PATH="$PWD/secrets/admin-password" "$node_binary" test/container-check.js

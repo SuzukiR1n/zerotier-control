@@ -1,4 +1,5 @@
-FROM node:24-bookworm-slim
+ARG DOCKER_REGISTRY=docker.io
+FROM ${DOCKER_REGISTRY}/library/node:24-bookworm-slim
 LABEL org.opencontainers.image.title="ZeroTier Control" \
       org.opencontainers.image.description="Self-hosted ZeroTier controller dashboard" \
       org.opencontainers.image.source="https://github.com/SuzukiR1n/zerotier-control"

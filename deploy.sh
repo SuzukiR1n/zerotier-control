@@ -8,6 +8,7 @@ COMMAND="${1:-menu}"
 [[ $# -eq 0 ]] || shift
 IP='' IPV6='' ZT_PORT_OPTION='' WEB_PORT_OPTION='' ACCESS='' ORIGIN='' PROJECT=''
 SKIP_PULL=false
+DOCKER_REGISTRY_OPTION='' GITHUB_PROXY_OPTION='' DOWNLOAD_OPTIONS=false
 EXTRA_COMPOSE=()
 RESTART_AFTER_BACKUP=()
 
@@ -24,6 +25,7 @@ ZeroTier Control 部署工具
   bash deploy.sh reset-password            生成新管理密码并重启 Web
   bash deploy.sh logs                      查看最近日志并持续跟踪
   bash deploy.sh uninstall                 移除容器，保留配置和全部数据卷
+  bash deploy.sh downloads                 配置 Docker 与 GitHub 下载加速
 
 无人值守首次安装示例：
   bash deploy.sh install --ip 你的公网IP --zt-port 9993 --web-port 3443 --access public
@@ -32,18 +34,22 @@ ZeroTier Control 部署工具
   --origin https://域名       HTTPS 模式的访问地址
   --project-name 名称         首次设置独立的 Compose 部署名称
   --compose-file 文件         追加 Compose 配置（可重复）
+  --docker-registry 域名       项目使用的 Docker Hub 加速仓库
+  --github-proxy HTTPS前缀     GitHub 源码和仓库加速；direct 表示直连
   update --skip-pull          只备份并重建当前源码，不拉取 Git
 已有 .env 时会沿用配置；修改 IP / 端口须按 README 的 Planet 更新流程操作。
 HELP
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file)
+    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file|--docker-registry|--github-proxy)
       [[ $# -ge 2 && -n "$2" ]] || fail "$1 缺少值"
       case "$1" in
         --ip) IP="$2";; --ipv6) IPV6="$2";; --zt-port) ZT_PORT_OPTION="$2";;
         --web-port) WEB_PORT_OPTION="$2";; --access) ACCESS="$2";; --origin) ORIGIN="$2";;
         --project-name) PROJECT="$2";; --compose-file) EXTRA_COMPOSE+=(-f "$2");;
+        --docker-registry) DOCKER_REGISTRY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
+        --github-proxy) GITHUB_PROXY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
       esac
       shift 2;;
     --skip-pull) SKIP_PULL=true; shift;;
@@ -52,10 +58,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$COMMAND" != help && "$COMMAND" != --help && "$COMMAND" != -h ]] || { usage; exit 0; }
-case "$COMMAND" in menu|install|update|status|planet|backup|reset-password|logs|uninstall) ;; *) fail "未知操作：$COMMAND";; esac
+case "$COMMAND" in menu|install|update|status|planet|backup|reset-password|logs|uninstall|downloads) ;; *) fail "未知操作：$COMMAND";; esac
 [[ "$(uname -s)" == Linux ]] || fail '部署脚本需要在 Linux 服务器运行。'
 [[ "$EUID" -eq 0 ]] || fail '请使用 root，或运行 sudo bash deploy.sh。'
 [[ "$ROOT" != *,* ]] || fail '项目目录不能包含逗号（Docker 挂载路径限制）。'
+# shellcheck source=deploy/downloads.sh
+. "$ROOT/deploy/downloads.sh"
 
 compose() { docker compose --project-directory "$ROOT" --env-file "$ROOT/.env" -f "$ROOT/compose.yaml" "${EXTRA_COMPOSE[@]}" "$@"; }
 cleanup() {
@@ -112,7 +120,7 @@ require_docker() {
 web_image() {
   if ! docker image inspect zerotier-control:local >/dev/null 2>&1; then
     printf '准备部署工具（首次需要构建 Web 镜像）……\n'
-    docker build -t zerotier-control:local .
+    docker build --build-arg "DOCKER_REGISTRY=$DOCKER_REGISTRY" -t zerotier-control:local .
   fi
 }
 pull_gateway() {
@@ -197,6 +205,7 @@ backup() {
   if [[ -n "$running" ]]; then mapfile -t RESTART_AFTER_BACKUP <<< "$running"; fi
   compose stop
   cp .env "$directory/.env"
+  if [[ -f .download.env ]]; then cp .download.env "$directory/.download.env"; fi
   cp "$ADMIN_PASSWORD_PATH" "$directory/admin-password"
   chmod 600 "$directory/.env" "$directory/admin-password"
   compose cp controller:/var/lib/zerotier-one "$directory/zerotier-one"
@@ -231,7 +240,7 @@ update_stack() {
     if ! git diff --quiet || ! git diff --cached --quiet; then fail '有未提交的源码修改，请先保存修改；更新不会覆盖它们。'; fi
   fi
   backup
-  if [[ "$SKIP_PULL" == false ]]; then git pull --ff-only; fi
+  if [[ "$SKIP_PULL" == false ]]; then pull_project; fi
   pull_gateway always
   compose build --pull
   compose up -d --force-recreate --pull never --wait --wait-timeout 180
@@ -251,11 +260,16 @@ reset_password() {
 menu() {
   local selection
   printf '\nZeroTier Control · 私有 Planet + 新版 ZeroTier + 中文 Web\n\n'
-  printf '1. 安装 / 启动\n2. 备份并更新\n3. 查看信息\n4. 导出 Planet\n5. 完整备份\n6. 重置管理密码\n7. 查看日志\n8. 移除容器（保留全部数据）\n0. 退出\n\n'
+  printf '1. 安装 / 启动\n2. 备份并更新\n3. 查看信息\n4. 导出 Planet\n5. 完整备份\n6. 重置管理密码\n7. 查看日志\n8. 移除容器（保留全部数据）\n9. 配置下载加速\n0. 退出\n\n'
   read -r -p '请选择操作：' selection
-  case "$selection" in 1) COMMAND=install;; 2) COMMAND=update;; 3) COMMAND=status;; 4) COMMAND=planet;; 5) COMMAND=backup;; 6) COMMAND=reset-password;; 7) COMMAND=logs;; 8) COMMAND=uninstall;; 0) exit 0;; *) fail '请输入 0–8。';; esac
+  case "$selection" in 1) COMMAND=install;; 2) COMMAND=update;; 3) COMMAND=status;; 4) COMMAND=planet;; 5) COMMAND=backup;; 6) COMMAND=reset-password;; 7) COMMAND=logs;; 8) COMMAND=uninstall;; 9) COMMAND=downloads;; 0) exit 0;; *) fail '请输入 0–9。';; esac
 }
 if [[ "$COMMAND" == menu ]]; then menu; fi
+download_config
+download_options
+if [[ "$COMMAND" == downloads || "$DOWNLOAD_OPTIONS" == true ]]; then configure_downloads; fi
+if [[ "$COMMAND" == downloads ]]; then exit 0; fi
+if [[ "$COMMAND" == install && ! -f .download.env && -t 0 ]]; then configure_downloads; fi
 require_docker
 case "$COMMAND" in
   install) install_stack;; update) update_stack;;

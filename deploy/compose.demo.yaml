@@ -2,6 +2,8 @@ services:
   control:
     build:
       context: ..
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
     image: zerotier-control:local
     init: true
     ports: ["127.0.0.1:8080:8080"]

@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { parseConfig } from '../scripts/deploy-config.js';
 
 const config = parseConfig(await readFile('.env', 'utf8'));
+const downloads = await readFile('.download.env', 'utf8');
+assert.ok(downloads.includes('DOCKER_REGISTRY=127.0.0.1:5000'));
 const state = JSON.parse(await readFile('/tmp/zt-control-ci/state.json', 'utf8'));
 assert.equal(config.COMPOSE_PROJECT_NAME, 'control-ci');
 assert.equal((await stat('.env')).mode & 0o777, 0o600);
@@ -23,6 +25,7 @@ for (const file of ['identity.secret', 'current.c25519', 'previous.c25519', 'pla
   assert.ok(live.equals(saved), `Backup did not preserve ${file}`);
 }
 const backupConfig = parseConfig(await readFile(`${dir}/.env`, 'utf8'));
+assert.equal(await readFile(`${dir}/.download.env`, 'utf8'), downloads);
 assert.equal(backupConfig.PUBLIC_ORIGIN, config.PUBLIC_ORIGIN);
 const oldPassword = (await readFile(`${dir}/admin-password`, 'utf8')).trim();
 const currentPassword = (await readFile(config.ADMIN_PASSWORD_PATH, 'utf8')).trim();

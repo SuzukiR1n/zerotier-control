@@ -1,13 +1,15 @@
-FROM debian:bookworm-slim AS build
+ARG DOCKER_REGISTRY=docker.io
+FROM ${DOCKER_REGISTRY}/library/debian:bookworm-slim AS build
 # Official 1.16.2 tag, pinned source commit and archive checksum.
 ARG ZT_COMMIT=fe29cd88886e4f58547ba7f740b2d73eb49ab222
 ARG ZT_SHA256=e4d4e5f6f2fba4d29b0358907a178965588cd1e8c6ae4affbed626e96856f51b
 ARG BUILD_JOBS=2
+ARG GITHUB_PROXY=""
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl --fail --location --retry 3 "https://codeload.github.com/zerotier/ZeroTierOne/tar.gz/${ZT_COMMIT}" -o /tmp/source.tar.gz \
-    && echo "${ZT_SHA256}  /tmp/source.tar.gz" | sha256sum -c - \
+COPY planet/download-source.sh /tmp/download-source.sh
+RUN sh /tmp/download-source.sh "${ZT_COMMIT}" "${ZT_SHA256}" /tmp/source.tar.gz \
     && tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src && rm /tmp/source.tar.gz
 # 1.16.x requires ZT_NONFREE for its local, file-backed controller.
 # Central's SSO, database and exporter integrations are not used here.
@@ -20,7 +22,7 @@ RUN c++ -O2 -std=c++17 -pthread -I. -Iext -o /src/zt-world \
 RUN mkdir /licenses && cp --parents LICENSE.txt LICENSE-MPL.txt nonfree/LICENSE.md /licenses/ \
     && find ext -type f \( -iname '*license*' -o -iname 'copying*' \) -exec cp --parents '{}' /licenses/ \;
 
-FROM python:3.13-slim-bookworm
+FROM ${DOCKER_REGISTRY}/library/python:3.13-slim-bookworm
 LABEL org.opencontainers.image.title="ZeroTier Control Planet" \
       org.opencontainers.image.source="https://github.com/SuzukiR1n/zerotier-control" \
       org.opencontainers.image.version="1.16.2"

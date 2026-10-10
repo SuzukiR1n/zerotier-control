@@ -4,7 +4,7 @@
 
 **自建 Planet + ZeroTier 1.16.2 控制器 + 全新中文 Web 管理界面。** 在空服务器上独立部署，首次启动生成自己的身份和 Planet 文件，随后在网页创建网络、授权成员。
 
-**v0.3.0 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
+**v0.3.1 · 可配置下载加速 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
 
 ZeroTier 当前锁定官方稳定版 [1.16.2](https://github.com/zerotier/ZeroTierOne/releases/tag/1.16.2)，源码提交与下载 SHA-256 均固定在 `Dockerfile.zerotier` 中。新版本将本地控制器移到了 `nonfree/`，构建显式启用 `ZT_NONFREE=1`。使用文件数据库，不需要 PostgreSQL、Redis 或 Central 账号。
 
@@ -34,6 +34,8 @@ bash deploy.sh
 ```
 
 选择 **1. 安装 / 启动**，按提示确认公网 IP、ZeroTier UDP 端口（默认 `9993`）和 Web 端口（默认 `3443`）。脚本完成以下工作：
+
+交互式首次安装会先询问下载线路；网络较慢时选择公开加速源或自定义地址，再进行服务器配置。已有部署可先运行 `bash deploy.sh downloads` 更换线路，不需要删除数据或重新填写公网 IP。
 
 - 保存 `.env`，生成随机管理密码；文件权限为 600。
 - 构建新版 ZeroTier 和 Web 镜像，启动整套服务并等待健康检查。
@@ -71,6 +73,7 @@ cat secrets/admin-password
 | 重置随机管理密码 | `bash deploy.sh reset-password` |
 | 查看日志 | `bash deploy.sh logs` |
 | 移除容器，保留数据 | `bash deploy.sh uninstall` |
+| 配置 Docker / GitHub 下载加速 | `bash deploy.sh downloads` |
 
 无人值守首次安装示例（将文档示例 IP 换成自己的公网 IP）：
 
@@ -207,14 +210,60 @@ docker compose up -d --force-recreate --wait
 
 重新生成会保留节点身份和签名密钥；为确保所有客户端接入新地址，应重新下载、分发客户端文件。缺少一份签名密钥时不会自动创建新密钥，需恢复完整备份。
 
-## 镜像下载中断
+## Docker 和 GitHub 下载加速
+
+在项目目录运行：
+
+```sh
+bash deploy.sh downloads
+bash deploy.sh install
+```
+
+线路菜单包含公开加速源、自定义和官方直连。公开线路选项目前使用 [1Panel 镜像站](https://docker.1panel.dev/) 和 [GH-Proxy](https://gh-proxy.com/docs/github-accelerator)，属于第三方公共服务，实际可用性和速度取决于服务器线路，可随时更换。
+
+也可一次指定并保存：
+
+```sh
+bash deploy.sh downloads --docker-registry docker.1panel.dev --github-proxy https://gh-proxy.org/
+bash deploy.sh install
+```
+
+配置保存在权限 600 的 `.download.env`，不提交到 Git：
+
+```dotenv
+DOCKER_REGISTRY=docker.1panel.dev
+GITHUB_PROXY=https://gh-proxy.org/
+```
+
+Docker 配置作用于 **Node、Debian、Python 和 Nginx**。它直接指定本项目镜像仓库，覆盖镜像拉取和 Dockerfile 的 `FROM`，不修改 `/etc/docker/daemon.json`，不需要重启 Docker，也不依赖独立 BuildKit 是否读取 Docker 的守护进程配置。自建源须支持 `/v2/` Registry API 和 `library/镜像名`，例如 `registry.example.com/library/node:24-bookworm-slim`。[Docker 镜像站说明](https://docs.docker.com/docker-hub/image-library/mirror/)
+
+GitHub 配置作用于 ZeroTier 源码归档下载和脚本中的仓库更新。代理须支持 `前缀/https://github.com/...`；用于 `git pull` 时还需支持 Git Smart HTTP。仅对这次公开仓库拉取设置地址替换，不写全局 Git 配置。源码提交和 SHA-256 保持固定，代理返回错误页面或不同内容时停止编译。
+
+仓库尚未下载、或获取新版脚本也很慢时：
+
+```sh
+# 首次获取：
+git clone https://gh-proxy.org/https://github.com/SuzukiR1n/zerotier-control.git
+
+# 已有仓库：在仓库内临时通过代理拉取新版，不修改 origin：
+git -c 'url.https://gh-proxy.org/https://github.com/.insteadOf=https://github.com/' pull --ff-only
+```
+
+若首次通过代理克隆，建议随后将 `origin` 设为官方地址，以便下载线路切换时沿用新的配置：
+
+```sh
+git remote set-url origin https://github.com/SuzukiR1n/zerotier-control.git
+```
+
+恢复直连：`bash deploy.sh downloads --docker-registry docker.io --github-proxy direct`。手动 Compose 构建也可读取该文件：`docker compose --env-file .env --env-file .download.env up -d --build --wait`；直接运行 `docker build` 时传入 `--build-arg DOCKER_REGISTRY=镜像域名`，控制器构建还可传入 `--build-arg GITHUB_PROXY=https://代理前缀/`。
+
+### 下载中断后的继续安装
 
 如果下载 `nginx:stable-alpine` 时出现 `unexpected EOF`、`short read` 或超时，说明 Docker 没有取得完整下载结果；具体原因可能在网络、代理或镜像源。脚本会在启动容器前拉取网页入口镜像，失败时最多尝试 3 次，间隔 5 秒和 10 秒；全部失败后保留配置和数据并退出。
 
-网络恢复后，在项目目录执行：
+配置下载加速后，在项目目录继续安装：
 
 ```sh
-git pull --ff-only
 bash deploy.sh install
 ```
 
@@ -240,13 +289,13 @@ python3 -m unittest discover -s test -p '*_test.py'
 
 受限 Windows 环境不能创建测试子进程时，可用 `node --test --test-isolation=none test/app.test.js test/planet.test.js test/deploy-config.test.js`。
 
-GitHub Actions 检查部署脚本语法和 ShellCheck，测试登录、会话、CSRF、频率限制、校验和网络成员操作。真实容器流程通过 `deploy.sh` 完成首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥完整、旧密码失效，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。额外模拟镜像拉取两次失败后恢复、持续失败后退出，确认重试可继续安装且失败时不重建已有容器。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
+GitHub Actions 检查部署脚本语法和 ShellCheck，测试登录、会话、CSRF、频率限制、校验和网络成员操作。真实容器流程将四种基础镜像放入隔离 Registry，再通过该 Registry 完成构建、首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥完整、旧密码失效，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。另行验证 GitHub 代理下载重试、校验不符时停止、仅对本次 Git 拉取改写地址，并模拟镜像拉取两次失败后恢复、持续失败后退出且不重建已有容器。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
 
 CI 使用隔离的测试地址和随机运行时身份，不证明实际公网线路、NAT 穿透或跨地区稳定性。部署后仍应在自己的设备上确认连接。
 
 ## 版本范围
 
-v0.3.0 提供部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
+v0.3.1 提供下载线路配置、部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
 
 成员列表显示授权状态，不是实时在线表；节点连接页显示控制器自身的 `/peer` 路径。删除正在申请加入的成员后，该设备仍可能再次出现在待授权列表。
 

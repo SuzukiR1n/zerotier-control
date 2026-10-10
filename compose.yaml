@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.zerotier
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
+        GITHUB_PROXY: ${GITHUB_PROXY:-}
     image: zerotier-control-planet:1.16.2
     restart: unless-stopped
     init: true
@@ -21,7 +24,10 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   control:
-    build: .
+    build:
+      context: .
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
     image: zerotier-control:local
     restart: unless-stopped
     init: true
@@ -54,7 +60,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   gateway:
-    image: nginx:stable-alpine
+    image: ${DOCKER_REGISTRY:-docker.io}/library/nginx:stable-alpine
     restart: unless-stopped
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
