@@ -8,3 +8,6 @@ node_modules/
 *.tar
 *.zip
 .DS_Store
+__pycache__/
+*.pyc
+backups/

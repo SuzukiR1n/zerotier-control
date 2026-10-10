@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { once } from 'node:events';
+import { createApp, passwordHash } from '../server/app.js';
+import { planetFiles } from '../server/planet.js';
+
+test('Planet exposes only public metadata and authenticated binary download', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'zt-planet-test-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const bytes = Buffer.alloc(300); bytes[0] = 1;
+  const identity = '012345abcd:0:' + 'a'.repeat(128);
+  await writeFile(join(dir, 'planet'), bytes);
+  await writeFile(join(dir, 'planet.json'), JSON.stringify({ worldId: 149604618, timestamp: 1, zerotierVersion: '1.16.2', roots: [{ identity, stableEndpoints: ['203.0.113.1/9993'], privateKey: 'must-not-leak' }], signingKey: 'must-not-leak' }));
+  const app = await createApp({ passwordHash: await passwordHash('only-test-password'), planetDir: dir });
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  t.after(async () => { app.server.closeAllConnections(); await new Promise(resolve => app.server.close(resolve)); });
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  assert.equal((await fetch(base + '/api/planet/download')).status, 401);
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'only-test-password' }) });
+  const headers = { Cookie: login.headers.get('set-cookie').split(';')[0] };
+  const info = await fetch(base + '/api/planet', { headers }).then(r => r.json());
+  assert.equal(info.available, true); assert.equal(info.size, bytes.length); assert.equal(info.sha256.length, 64);
+  assert.ok(!JSON.stringify(info).includes('must-not-leak')); assert.ok(!Object.hasOwn(info, 'bytes'));
+  const download = await fetch(base + '/api/planet/download', { headers });
+  assert.match(download.headers.get('content-disposition'), /filename="planet"/);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), bytes);
+  assert.equal((await fetch(base + '/api/planet/current.c25519', { headers })).status, 404);
+  await writeFile(join(dir, 'planet.json'), JSON.stringify({ roots: [{ identity: identity + ':secret', stableEndpoints: [] }] }));
+  await assert.rejects(planetFiles(dir), e => e.status === 503);
+});

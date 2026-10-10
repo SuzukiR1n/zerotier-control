@@ -1,183 +1,204 @@
 # ZeroTier Control
 
-一个自托管的 ZeroTier 控制器管理面板，面向习惯使用中文界面的个人和小型团队。通过本地 Controller API 管理网络与成员，替代 ztncui 的管理界面。
+[![Check and Docker](https://github.com/SuzukiR1n/zerotier-control/actions/workflows/ci.yml/badge.svg)](https://github.com/SuzukiR1n/zerotier-control/actions/workflows/ci.yml)
 
-**v0.1.0 · 中文界面 · Docker · 手机适配 · 明暗主题**
+**自建 Planet + ZeroTier 1.16.2 控制器 + 全新中文 Web 管理界面。** 在空服务器上独立部署，首次启动生成自己的身份和 Planet 文件，随后在网页创建网络、授权成员。
 
-独立的管理项目。使用现有 ZeroTier 控制器存储网络数据，管理面板自身不生成 Planet、不启动第二个 ZeroTier 节点，也不修改节点身份文件。按 ZeroTier **1.14.1** 的稳定控制器 API 实现；其他版本请先验证兼容性。
+**v0.2.0 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
+
+ZeroTier 当前锁定官方稳定版 [1.16.2](https://github.com/zerotier/ZeroTierOne/releases/tag/1.16.2)，源码提交与下载 SHA-256 均固定在 `Dockerfile.zerotier` 中。新版本将本地控制器移到了 `nonfree/`，构建显式启用 `ZT_NONFREE=1`。使用文件数据库，不需要 PostgreSQL、Redis 或 Central 账号。
+
+**许可：** 本项目新增代码使用 MIT；上游 ZeroTier Agent/SDK 使用 MPL-2.0，新版控制器使用非商业用途的 Source-Available 许可。商业场景须取得上游授权，不能将整个整合镜像视为 MIT。[详细说明](NOTICE.md) · [上游许可](https://github.com/zerotier/ZeroTierOne/blob/1.16.2/nonfree/LICENSE.md)。
 
 ## 功能
 
-- 网络总览、搜索、创建私有网络、重命名、删除确认。
-- 自动生成 IPv4 子网的直连路由和地址池；支持手动维护 IPv4 / IPv6 路由及地址池。
-- 成员登记、授权、撤销授权、名称、固定 IP、桥接权限、关闭成员自动分配。
-- IPv4 / IPv6 分配模式、RFC 4193、6plane、DNS、MTU、广播及多播设置。
-- 查看控制器的邻居节点、Planet 路径和延迟。
-- 网络及成员配置导出、操作日志。
-- 密码登录、HttpOnly 会话、CSRF 校验、登录频率限制；控制器密钥仅在后端使用。
-- 无第三方 npm 运行依赖，原生 HTML / CSS / JavaScript + Node.js 24。
+- 首次运行生成私有 Planet；节点身份、签名密钥、网络和成员保存在数据卷中。
+- 登录后查看根节点、公网地址、文件校验值，下载客户端 `planet` 文件。
+- 中文网络总览、搜索、创建私有网络、重命名、删除确认。
+- 自动配置 IPv4 子网、直连路由、地址池；手动维护 IPv4 / IPv6 路由和地址池。
+- 成员授权、撤销授权、名称、固定 IP、桥接权限、关闭成员自动分配。
+- IPv4 / IPv6 分配模式、RFC 4193、6plane、DNS、MTU、广播和多播设置。
+- 控制器邻居节点与路径、网络配置导出、操作日志。
+- 密码登录、HttpOnly 会话、CSRF 检查、登录频率限制；私钥和控制器密钥不提供下载。
 
-## 先体验界面
+## 部署到新服务器
 
-本机安装 Node.js 24 后：
+需要 Linux 公网服务器、Docker、Docker Compose v2 和 Git。推荐 Debian 12/13、x86_64，首次源码编译建议至少 2 GB 内存。当前自动检查使用 Linux/AMD64；ARM64 构建尚未验证。
 
-```sh
-git clone https://github.com/SuzukiR1n/zerotier-control.git
-cd zerotier-control
-npm run demo
-```
-
-打开 <http://127.0.0.1:8080>。演示使用内存中的模拟数据，无须密码，也不会连接实际控制器。创建、授权和修改可实际交互；服务重启后重置。演示中的成员数量及路径不是你的服务器数据。
-
-只用 Docker 体验：
-
-```sh
-docker compose -f deploy/compose.demo.yaml up -d --build
-```
-
-访问同一地址。演示入口仅绑定本机；不要把免登录的演示模式当作生产配置。
-
-## 生产部署：接入 docker-zerotier-planet
-
-适用于已有 `myztplanet` 容器的 Linux 服务器，需要 Docker 和 Docker Compose v2。面板与原控制器共享网络空间，访问其 `127.0.0.1:9994`；网页由独立入口容器提供，不要求原容器已经映射新的网页端口。
-
-1. 下载项目，构建管理镜像，生成随机管理密码：
+以下命令在服务器以 root 执行：
 
 ```sh
 git clone https://github.com/SuzukiR1n/zerotier-control.git
 cd zerotier-control
-docker build -t zerotier-control:local .
-docker run --rm --user 0:0 --mount "type=bind,src=$PWD,dst=/work" \
-  --workdir /work --entrypoint node zerotier-control:local scripts/password.js
 cp .env.example .env
 chmod 600 .env
 ```
 
-`secrets/admin-password` 是管理密码文件，请自行查看并妥善保管。生成器拒绝覆盖已有文件。不要将密码、控制器密钥或任何真实服务器数据提交到 Git。
-
-2. 查找原容器的宿主机数据路径：
-
-```sh
-docker inspect myztplanet --format '{{range .Mounts}}{{if eq .Destination "/var/lib/zerotier-one"}}{{println .Source}}{{end}}{{end}}'
-```
-
-在 `.env` 填入以下配置，将示例路径改成自己的**绝对路径**：
+编辑 `.env`，把 `YOUR_PUBLIC_IP` 改成新服务器公网 IP：
 
 ```dotenv
-ZT_CONTAINER_NAME=myztplanet
-ZT_PORT=9994
-ZT_TOKEN_PATH=/absolute/path/data/zerotier/one/authtoken.secret
-ADMIN_PASSWORD_PATH=/absolute/path/zerotier-control/secrets/admin-password
-PUBLIC_ORIGIN=http://localhost:8080
-COOKIE_SECURE=false
-```
-
-`ZT_PORT` 是容器内 ZeroTier 控制器的端口，不是原 ztncui 网页端口。`ADMIN_PASSWORD_PATH` 在此方式下必须使用绝对路径。原容器需要正在运行。
-
-3. 从仓库根目录启动：
-
-```sh
-docker compose --env-file .env -f deploy/compose.planet.yaml up -d --build
-docker compose --env-file .env -f deploy/compose.planet.yaml ps
-```
-
-入口默认仅监听服务器 `127.0.0.1:8080`。从自己的电脑建立 SSH 隧道：
-
-```sh
-ssh -L 8080:127.0.0.1:8080 root@YOUR_SERVER
-```
-
-随后在自己电脑打开 <http://localhost:8080>，输入生成的管理密码。这里 `localhost` 与 `.env` 的 `PUBLIC_ORIGIN` 保持一致。
-
-原来的 ztncui 可同时存在。成员的名称、授权、分配地址来自控制器，会自动显示；原 ztncui 的网页登录密码、账户和界面偏好不导入，新面板使用自己的管理密码。如果原项目重新创建了 `myztplanet` 容器，请重建面板的共享网络空间：
-
-```sh
-docker compose --env-file .env -f deploy/compose.planet.yaml up -d --force-recreate
-```
-
-## 生产部署：Linux 原生 ZeroTier 服务
-
-如果 ZeroTier 直接安装在 Linux 主机上，采用根目录的 `compose.yaml`。同样先构建镜像、生成密码、复制 `.env.example`。
-
-```dotenv
-ZT_API_URL=http://127.0.0.1:9993
-ZT_TOKEN_PATH=/var/lib/zerotier-one/authtoken.secret
+PLANET_ENDPOINTS=YOUR_PUBLIC_IP/9993
+ZT_PORT=9993
+WEB_PORT=8080
 ADMIN_PASSWORD_PATH=./secrets/admin-password
 PUBLIC_ORIGIN=http://localhost:8080
 COOKIE_SECURE=false
 ```
 
+支持逗号分隔的 IPv4 / IPv6，例如 `203.0.113.10/9993,2001:db8::10/9993`；这些是文档示例地址，部署时必须换成自己的地址。文件使用 IP/端口格式，不使用域名。多个地址应当指向同一个部署；此版本不自动配置跨服务器容灾。
+
+构建网页镜像并生成随机管理密码：
+
 ```sh
-docker compose --env-file .env up -d --build
+docker build -t zerotier-control:local .
+docker run --rm --user 0:0 --mount "type=bind,src=$PWD,dst=/work" \
+  --workdir /work --entrypoint node zerotier-control:local scripts/password.js
 ```
 
-此方式使用 Linux 主机网络，网页绑定 `127.0.0.1:8080`，同样通过 SSH 隧道或 HTTPS 反向代理访问。Compose 默认以容器 root 读取宿主机 root 拥有的密钥文件，并移除全部 capabilities，密钥只读挂载，容器文件系统只读。没有 Docker socket 挂载。
+密码保存在 `secrets/admin-password`，请自行查看并妥善保管。文件为 root 所有、权限 600；生成器不会覆盖已有密码。无需在配置或命令参数中填写明文密码。
 
-## 使用域名与 HTTPS
+启动整套服务：
 
-在服务器的 HTTPS 反向代理中，将域名转发到 `127.0.0.1:8080`，保留原始 `Host`。设置：
+```sh
+docker compose --env-file .env up -d --build --wait --wait-timeout 120
+docker compose ps
+```
+
+第一次构建会下载、校验并编译 ZeroTier 官方源码，耗时取决于服务器及网络。默认使用 2 个编译任务。构建完成后启动三个容器：
+
+| 服务 | 用途 |
+| --- | --- |
+| `controller` | ZeroTier 1.16.2、Planet 根节点、网络控制器 |
+| `control` | 新 Web 后端，访问控制器的本地 API |
+| `gateway` | 网页入口 |
+
+服务器和云安全组须允许 **UDP 9993** 入站，以及对应的 UDP 出站。修改 `ZT_PORT` 时同步修改 `PLANET_ENDPOINTS` 的端口。控制器管理 API 不映射到公网；网页默认只监听服务器 `127.0.0.1:8080`。
+
+从自己的电脑建立 SSH 隧道：
+
+```sh
+ssh -L 8080:127.0.0.1:8080 root@YOUR_SERVER
+```
+
+在电脑打开 <http://localhost:8080>，使用生成的密码登录。访问地址应与 `PUBLIC_ORIGIN` 一致。
+
+容器不使用 `privileged` 或挂载 Docker socket。控制器只承担根节点和配置服务，不加入网络，无须 TUN 设备；管理后端共享控制器的网络空间，通过 Unix socket 连接网页入口。
+
+## 客户端接入
+
+1. 在网页“Planet 与客户端”下载 `planet`。
+2. 在客户端停止 ZeroTier 服务，备份原 `planet`，替换为下载文件，然后重启服务。
+3. 在网页创建网络，如 `10.42.0.0/24`，记下网络 ID。
+4. 客户端加入此网络，在网页成员列表授权该设备。
+5. 确认客户端获取地址，`zerotier-cli peers` 中根节点角色为 `PLANET`、地址为自己的服务器。
+
+| 客户端 | Planet 路径 |
+| --- | --- |
+| Windows | `C:\ProgramData\ZeroTier\One\planet` |
+| Linux | `/var/lib/zerotier-one/planet` |
+| macOS | `/Library/Application Support/ZeroTier/One/planet` |
+
+以 Linux 为例，在保存好原文件后：
+
+```sh
+sudo systemctl stop zerotier-one
+sudo cp ./planet /var/lib/zerotier-one/planet
+sudo systemctl start zerotier-one
+sudo zerotier-cli join YOUR_NETWORK_ID
+sudo zerotier-cli peers
+```
+
+Windows 使用管理员权限停止并重启 ZeroTier One 服务。官方 Android/iOS 应用不提供导入自建 Planet 的界面，须使用支持该功能的客户端；该仓库不包含移动端客户端。
+
+## 域名和 HTTPS
+
+在服务器 HTTPS 反向代理中将域名转发到 `127.0.0.1:8080`，保留原始 `Host`。修改 `.env`：
 
 ```dotenv
 PUBLIC_ORIGIN=https://control.example.com
 COOKIE_SECURE=true
 ```
 
-修改后重新创建管理容器。管理服务会校验浏览器来源并设置 Secure cookie。单纯用 HTTP IP 地址访问而仍设置 `COOKIE_SECURE=true` 会导致无法保留登录；没有 HTTPS 的 SSH 本机隧道应使用 `false`。
+然后 `docker compose up -d --force-recreate`。网页部署在域名根路径，不支持 `/control/` 子路径。SSH 本机 HTTP 隧道使用 `COOKIE_SECURE=false`；HTTPS 使用 `true`。
 
-面板以 `/` 为根路径部署，不支持挂在 `/control/` 等子路径。不要把 ZeroTier 原始控制器 API 公开到互联网；后端的 `ZT_API_URL` 应指向可信的本机地址，跨主机使用时须自行提供受控网络或 HTTPS。
+## 文件持久化和备份
 
-## 本地连接实际控制器
+数据卷用途：
 
-设置环境变量或在 `.env` 写入：
+| 卷 | 保存内容 |
+| --- | --- |
+| `zerotier-data` | 节点身份、Planet 签名密钥、Planet、`controller.d` 网络和成员配置 |
+| `planet-files` | 客户端 Planet 及公开元数据 |
+| `controller-access` | 控制器本地 API 密钥，只提供给管理后端 |
+| `control-data` | 网页操作日志 |
+| `control-socket` | 服务间通信 socket |
 
-```dotenv
-HOST=127.0.0.1
-PORT=8080
-ADMIN_PASSWORD_FILE=./secrets/admin-password
-ZT_API_URL=http://127.0.0.1:9993
-ZT_TOKEN_FILE=/var/lib/zerotier-one/authtoken.secret
-DATA_DIR=./data
-PUBLIC_ORIGIN=http://localhost:8080
-```
+重启或重建容器会复用身份、签名密钥和 Planet。不要删除数据卷。`docker compose down` 保留卷；`down -v` 会删除部署数据。
+
+完整备份示例，先停服务以获得一致的数据：
 
 ```sh
-npm run password
-npm start
+install -d -m 700 backups
+docker compose stop
+docker compose cp controller:/var/lib/zerotier-one backups/zerotier-one
+docker compose cp control:/app/data backups/web-data
+docker compose start
 ```
 
-`ZT_TOKEN_FILE` 在 Node 直接运行时使用，`ZT_TOKEN_PATH` 是 Compose 用来挂载该文件的宿主机路径。后端每次请求读取密钥文件，以兼容密钥轮换；文件挂载被外部原子替换时可能需要重建容器。
+另行保存管理密码、`.env` 和部署源码。备份包含私钥，须加密保管。网页导出的网络 JSON 用于查看和保存配置，**不能替代完整备份**，目前没有配置导入功能。
 
-如需使用密码哈希，可通过 `node scripts/password.js --hash` 的标准输入生成 scrypt 哈希，设置 `ADMIN_PASSWORD_HASH`（格式 `scrypt:salt:digest`）。有哈希时优先于密码文件；不要把明文密码放进命令参数。单个管理员，会话有效期 8 小时，服务重启后会话失效。
+升级项目：
 
-## 日志与备份
+```sh
+git pull
+docker compose --env-file .env up -d --build --force-recreate --wait
+```
 
-- 面板数据目录只保存操作日志，生产 Compose 使用 `control-data` 卷。当前启动以来最多 200 条成功操作可在页面查看。
-- 完整日志保存为 `audit.jsonl`，超过 5 MiB 轮转到 `.previous`；审计写入失败会显示在控制器信息页和服务日志中。
-- 网络和成员保存于 ZeroTier 的 `controller.d`。完整备份还需要 `identity.secret` 和控制器的其他必要运行数据。
-- 网页导出的 JSON 用于查看和保存网络设置，**不能替代完整备份**，v0.1.0 没有配置导入功能。
+默认不会自动跟随上游 `latest`；新版 ZeroTier 需由项目更新锁定源码和校验值，再通过集成测试。更改公网地址后启动会提示配置变化；需先备份、停掉整套服务，再显式重新生成 Planet：
 
-## 版本边界
+```sh
+docker compose stop
+docker compose run --rm --no-deps controller --regenerate
+docker compose up -d --force-recreate --wait
+```
 
-v0.1.0 支持单个控制器、单个管理员。尚未提供多用户权限、多个控制器切换、Flow Rules DSL 编辑、Planet 生成与签名、流量监控或完整备份恢复。保存普通设置时只发送对应字段，不覆盖已有流规则或其他高级配置。
+重新生成会保留节点身份和签名密钥；为确保所有客户端接入新地址，应重新下载、分发客户端文件。缺少一份签名密钥时不会自动创建新密钥，需恢复完整备份。
 
-控制器的成员列表并非实时在线表，所以页面显示授权状态。节点连接页展示的是控制器自身的 `/peer` 路径，不是全部客户端之间的链路。删除在线成员后，它仍可能重新申请加入并出现在待授权列表。
+## 仅体验 Web 界面
+
+本机安装 Node.js 24 后运行 `npm run demo`，访问 <http://127.0.0.1:8080>。或使用：
+
+```sh
+docker compose -f deploy/compose.demo.yaml up -d --build
+```
+
+演示无需密码，使用模拟数据，不生成 Planet，不连接实际控制器，重启后重置。不能作为生产配置。
 
 ## 开发和验证
 
 ```sh
 npm run check
 npm test
+python3 -m unittest discover -s test -p '*_test.py'
 ```
 
-测试覆盖实际 HTTP 登录/会话/CSRF/频率限制、网络成员操作、数据校验、静态资源保护，以及复现 1.14.1 API 数据格式的模拟控制器。受限的 Windows 执行环境不能创建测试子进程时，使用 `node --test --test-isolation=none test/app.test.js`。
+受限 Windows 环境不能创建测试子进程时，可用 `node --test --test-isolation=none test/app.test.js test/planet.test.js`。
 
-GitHub Actions 运行测试、构建 Docker 镜像，并启动容器进行检查。开发预览只能证明模拟数据流程；生产安装后应核对控制器 ID、现有网络及成员，再做一次实际设备授权与连接验证。
+GitHub Actions 测试登录、会话、CSRF、频率限制、校验和网络成员操作，并构建整个部署。真实容器检查包含 ZeroTier 1.16.2 网络/成员/DNS API、Planet 下载与校验、实际客户端加入私有 Planet、网页授权、客户端状态/分配地址，以及重建容器后身份和 Planet 不变。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
 
-## 接口来源
+CI 使用隔离的测试地址和随机运行时身份，不证明实际公网线路、NAT 穿透或跨地区稳定性。部署后仍应在自己的设备上确认连接。
 
-- [ZeroTier 官方控制器文档](https://docs.zerotier.com/controller/)
-- [ZeroTier 1.14.1 EmbeddedNetworkController.cpp](https://github.com/zerotier/ZeroTierOne/blob/1.14.1/controller/EmbeddedNetworkController.cpp)
-- [Docker Compose 配置](https://docs.docker.com/reference/compose-file/services/)
-- [Nginx Unix socket 反向代理](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass)
+## 版本范围
 
-MIT 许可。与 ZeroTier, Inc. 无隶属关系；ZeroTier 名称及商标归其所有者。
+v0.2.0 提供单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或完整备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
+
+成员列表显示授权状态，不是实时在线表；节点连接页显示控制器自身的 `/peer` 路径。删除正在申请加入的成员后，该设备仍可能再次出现在待授权列表。
+
+## 来源与许可
+
+- [ZeroTier 官方源码与 1.16.2](https://github.com/zerotier/ZeroTierOne/tree/1.16.2)
+- [ZeroTier 控制器文档](https://docs.zerotier.com/controller/)
+- [ZeroTier World 格式](https://github.com/zerotier/ZeroTierOne/blob/1.16.2/node/World.hpp)
+- [第三方组件与许可说明](NOTICE.md)
+
+项目目标参考了 [docker-zerotier-planet](https://github.com/xubiaolin/docker-zerotier-planet)，Web 和部署工具为新实现。与 ZeroTier, Inc. 无隶属关系，ZeroTier 商标归其所有者。

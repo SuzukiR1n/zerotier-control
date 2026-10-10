@@ -8,7 +8,7 @@ const host = env.HOST || '127.0.0.1', port = Number(env.PORT || 8080);
 if (demo && !['127.0.0.1', '::1', 'localhost'].includes(host) && env.DEMO_ALLOW_REMOTE !== 'true') throw new Error('演示模式默认仅允许本机访问');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 必须为 1–65535');
 try {
-  const app = await createApp({ demo, passwordFile: env.ADMIN_PASSWORD_FILE, passwordHash: env.ADMIN_PASSWORD_HASH, ztUrl: env.ZT_API_URL, tokenFile: env.ZT_TOKEN_FILE, ztToken: env.ZT_TOKEN, origin: env.PUBLIC_ORIGIN, secureCookie: env.COOKIE_SECURE === undefined ? undefined : env.COOKIE_SECURE === 'true', dataDir: env.DATA_DIR || './data' });
+  const app = await createApp({ demo, passwordFile: env.ADMIN_PASSWORD_FILE, passwordHash: env.ADMIN_PASSWORD_HASH, ztUrl: env.ZT_API_URL, tokenFile: env.ZT_TOKEN_FILE, ztToken: env.ZT_TOKEN, origin: env.PUBLIC_ORIGIN, secureCookie: env.COOKIE_SECURE === undefined ? undefined : env.COOKIE_SECURE === 'true', dataDir: env.DATA_DIR || './data', planetDir: env.PLANET_DIR });
   const socket = env.SOCKET_PATH;
   if (socket) {
     await mkdir(dirname(socket), { recursive: true });

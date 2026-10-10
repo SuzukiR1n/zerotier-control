@@ -73,12 +73,12 @@ export class DemoController {
       const names = i === 0 ? ['NAS · Storage', 'MacBook Pro', 'Debian · Gateway', 'iPhone', '新设备'] : i === 1 ? ['Workstation', 'Render Server', '新设备'] : ['Raspberry Pi', 'Edge Gateway'];
       this.people.set(id, new Map(names.map((name, j) => {
         const mid = randomBytes(5).toString('hex');
-        return [mid, { id: mid, address: mid, nwid: id, name, authorized: !name.includes('新'), activeBridge: false, noAutoAssignIps: false, ipAssignments: name.includes('新') ? [] : [`10.${10 + i}.0.${11 + j}`], identity: name.includes('新') ? '' : `${mid}:0:demo-public-identity`, vMajor: 1, vMinor: 14, vRev: 1, revision: 1 }];
+        return [mid, { id: mid, address: mid, nwid: id, name, authorized: !name.includes('新'), activeBridge: false, noAutoAssignIps: false, ipAssignments: name.includes('新') ? [] : [`10.${10 + i}.0.${11 + j}`], identity: name.includes('新') ? '' : `${mid}:0:demo-public-identity`, vMajor: 1, vMinor: 16, vRev: 2, revision: 1 }];
       })));
     });
   }
-  async status() { return { address: 'a1b2c3d4e5', version: '1.14.1', online: true, tcpFallbackActive: false }; }
-  async peers() { return [{ address: '7f1234abcd', role: 'PLANET', latency: 28, versionMajor: 1, versionMinor: 14, versionRev: 1, paths: [{ address: '203.0.113.10/9993', active: true, preferred: true }] }, { address: '8e2345bcde', role: 'PLANET', latency: 86, paths: [{ address: '198.51.100.20/9993', active: true, preferred: false }] }]; }
+  async status() { return { address: 'a1b2c3d4e5', version: '1.16.2', online: true, tcpFallbackActive: false }; }
+  async peers() { return [{ address: '7f1234abcd', role: 'PLANET', latency: 28, versionMajor: 1, versionMinor: 16, versionRev: 2, paths: [{ address: '203.0.113.10/9993', active: true, preferred: true }] }, { address: '8e2345bcde', role: 'PLANET', latency: 86, paths: [{ address: '198.51.100.20/9993', active: true, preferred: false }] }]; }
   async networks() { return [...this.items.values()].map(n => ({ ...structuredClone(n), memberCount: this.people.get(n.id).size })); }
   async network(id) { if (!this.items.has(id)) throw new HttpError(404, '网络不存在'); return structuredClone(this.items.get(id)); }
   async members(id) { await this.network(id); return [...this.people.get(id).values()].map(m => structuredClone(m)); }

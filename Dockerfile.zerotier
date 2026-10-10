@@ -1,0 +1,36 @@
+FROM debian:bookworm-slim AS build
+# Official 1.16.2 tag, pinned source commit and archive checksum.
+ARG ZT_COMMIT=fe29cd88886e4f58547ba7f740b2d73eb49ab222
+ARG ZT_SHA256=e4d4e5f6f2fba4d29b0358907a178965588cd1e8c6ae4affbed626e96856f51b
+ARG BUILD_JOBS=2
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl --fail --location --retry 3 "https://codeload.github.com/zerotier/ZeroTierOne/tar.gz/${ZT_COMMIT}" -o /tmp/source.tar.gz \
+    && echo "${ZT_SHA256}  /tmp/source.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src && rm /tmp/source.tar.gz
+# 1.16.x requires ZT_NONFREE for its local, file-backed controller.
+# Central's SSO, database and exporter integrations are not used here.
+RUN make -j"${BUILD_JOBS}" ZT_NONFREE=1 ZT_SSO_SUPPORTED=0 ZT_OTEL=0 one \
+    && test "$(./zerotier-one -v)" = "1.16.2" && strip zerotier-one
+COPY planet/world.cpp /src/zt-control-world.cpp
+RUN c++ -O2 -std=c++17 -pthread -I. -Iext -o /src/zt-world \
+    node/ECC.cpp node/Salsa20.cpp node/SHA512.cpp node/Identity.cpp \
+    node/Utils.cpp node/InetAddress.cpp osdep/OSUtils.cpp zt-control-world.cpp && strip /src/zt-world
+RUN mkdir /licenses && cp --parents LICENSE.txt LICENSE-MPL.txt nonfree/LICENSE.md /licenses/ \
+    && find ext -type f \( -iname '*license*' -o -iname 'copying*' \) -exec cp --parents '{}' /licenses/ \;
+
+FROM python:3.13-slim-bookworm
+LABEL org.opencontainers.image.title="ZeroTier Control Planet" \
+      org.opencontainers.image.source="https://github.com/SuzukiR1n/zerotier-control" \
+      org.opencontainers.image.version="1.16.2"
+COPY --from=build /src/zerotier-one /usr/sbin/zerotier-one
+COPY --from=build /src/zt-world /usr/local/bin/zt-world
+COPY --from=build /licenses /usr/share/licenses/zerotier
+RUN ln -s zerotier-one /usr/sbin/zerotier-cli && ln -s zerotier-one /usr/sbin/zerotier-idtool \
+    && mkdir -p /var/lib/zerotier-one && chmod 700 /var/lib/zerotier-one
+COPY planet/bootstrap.py planet/health.py /opt/zt/
+ENV ZT_PORT=9993 PYTHONDONTWRITEBYTECODE=1
+EXPOSE 9993/udp
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 CMD ["python3", "/opt/zt/health.py"]
+ENTRYPOINT ["python3", "/opt/zt/bootstrap.py"]

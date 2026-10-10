@@ -1,0 +1,11 @@
+# Only used by isolated CI client tests; do not use on a public server.
+services:
+  controller:
+    networks:
+      default:
+        ipv4_address: 172.30.0.2
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

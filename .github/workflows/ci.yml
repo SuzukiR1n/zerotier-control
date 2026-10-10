@@ -7,6 +7,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLANET_ENDPOINTS: 172.30.0.2/9993
+      ADMIN_PASSWORD_PATH: /tmp/zt-control-ci/password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,18 +18,15 @@ jobs:
           node-version: '24'
       - run: npm run check
       - run: npm test
+      - run: python3 -m unittest discover -s test -p '*_test.py'
       - name: Validate Compose configurations
-        env:
-          ZT_TOKEN_PATH: /tmp/ci-token
-          ADMIN_PASSWORD_PATH: /tmp/ci-password
         run: |
           docker compose config --quiet
           docker compose -f deploy/compose.demo.yaml config --quiet
-          docker compose -f deploy/compose.planet.yaml config --quiet
-      - name: Build container
-        run: docker build -t zerotier-control:test .
-      - name: Container smoke test
+          docker compose -f compose.yaml -f deploy/compose.ci.yaml config --quiet
+      - name: Build Web image and check demo
         run: |
+          docker build -t zerotier-control:test .
           docker run -d --name control-test -p 127.0.0.1:8080:8080 -e DEMO_MODE=true -e DEMO_ALLOW_REMOTE=true zerotier-control:test
           trap 'docker logs control-test; docker rm -f control-test' EXIT
           for attempt in $(seq 1 30); do
@@ -33,19 +34,20 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:8080/api/session | python3 -c 'import json,sys; assert json.load(sys.stdin)["demo"] is True'
-          curl --fail --silent http://127.0.0.1:8080/ | grep -q 'ZeroTier Control'
-      - name: Verify existing Planet sidecar deployment
-        env:
-          ZT_CONTAINER_NAME: zt-mock-ci
-          ZT_PORT: '9994'
-          ZT_TOKEN_PATH: /tmp/zt-control-ci/token
-          ADMIN_PASSWORD_PATH: /tmp/zt-control-ci/password
+      - name: Fresh Planet and actual ZeroTier 1.16.2 integration
         run: |
           mkdir -p /tmp/zt-control-ci
-          printf '%s\n' 'ci-controller-token' > /tmp/zt-control-ci/token
           printf '%s\n' 'ci-admin-password-only' > /tmp/zt-control-ci/password
-          chmod 600 /tmp/zt-control-ci/token /tmp/zt-control-ci/password
-          docker run -d --name zt-mock-ci --mount "type=bind,src=$PWD/test/mock-controller.js,dst=/mock.js,readonly" node:24-bookworm-slim node /mock.js
-          trap 'docker compose -p control-ci -f deploy/compose.planet.yaml logs; docker compose -p control-ci -f deploy/compose.planet.yaml down -v; docker rm -f zt-mock-ci' EXIT
-          docker compose -p control-ci -f deploy/compose.planet.yaml up -d --build --wait --wait-timeout 90
+          chmod 600 /tmp/zt-control-ci/password
+          sudo chown root:root /tmp/zt-control-ci/password
+          trap 'docker logs zt-client-ci || true; docker rm -f zt-client-ci || true; docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml logs; docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down -v' EXIT
+          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml up -d --build --wait --wait-timeout 120
           node test/container-check.js
+          docker create --name zt-client-ci --network control-ci_default --cap-add NET_ADMIN --device /dev/net/tun --entrypoint zerotier-one zerotier-control-planet:1.16.2 -U -p9993 /var/lib/zerotier-one
+          docker cp /tmp/zt-control-ci/planet zt-client-ci:/var/lib/zerotier-one/planet
+          docker start zt-client-ci
+          node test/client-check.js
+          docker rm -f zt-client-ci
+          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml down
+          docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml up -d --wait --wait-timeout 120
+          node test/container-check.js --after-restart

@@ -7,3 +7,6 @@ test
 docs
 *.zip
 *.log
+__pycache__
+*.pyc
+backups

@@ -5,6 +5,7 @@ import { readFile, appendFile, mkdir, stat, rename } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { Controller, DemoController } from './controller.js';
+import { planetFiles } from './planet.js';
 import { HttpError, insist, networkPatch, memberPatch, subnetDefaults, text, object } from './validation.js';
 
 const scrypt = promisify(scryptCallback);
@@ -113,7 +114,7 @@ export async function createApp(config) {
       let s = session(req);
       if (path === '/api/session' && method === 'GET') {
         if (demo && !s) s = newSession(req, res);
-        return json(res, 200, { authenticated: !!s, csrf: s?.csrf, demo, user: s ? 'admin' : null, version: '0.1.0' });
+        return json(res, 200, { authenticated: !!s, csrf: s?.csrf, demo, user: s ? 'admin' : null, version: '0.2.0' });
       }
       if (path === '/api/login' && method === 'POST') {
         checkOrigin(req);
@@ -144,6 +145,16 @@ export async function createApp(config) {
         return json(res, 200, { address: zt.address, version: zt.version, online: zt.online, tcpFallbackActive: zt.tcpFallbackActive, demo, auditHealthy: !auditFailed });
       }
       if (path === '/api/audit' && method === 'GET') return json(res, 200, audit);
+      if (['/api/planet', '/api/planet/download'].includes(path) && method === 'GET') {
+        const planet = demo ? { available: false, demo: true } : await planetFiles(config.planetDir);
+        if (path.endsWith('/download')) {
+          if (!planet.available) throw new HttpError(404, '当前没有可下载的 Planet 文件');
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="planet"', 'Cache-Control': 'no-store' });
+          return res.end(planet.bytes);
+        }
+        const { bytes, ...info } = planet;
+        return json(res, 200, info);
+      }
       if (path === '/api/peers' && method === 'GET') return json(res, 200, await controller.peers());
       if (path === '/api/networks' && method === 'GET') return json(res, 200, await controller.networks());
       if (path === '/api/networks' && method === 'POST') {
