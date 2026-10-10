@@ -1,0 +1,51 @@
+name: Check and Docker
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run check
+      - run: npm test
+      - name: Validate Compose configurations
+        env:
+          ZT_TOKEN_PATH: /tmp/ci-token
+          ADMIN_PASSWORD_PATH: /tmp/ci-password
+        run: |
+          docker compose config --quiet
+          docker compose -f deploy/compose.demo.yaml config --quiet
+          docker compose -f deploy/compose.planet.yaml config --quiet
+      - name: Build container
+        run: docker build -t zerotier-control:test .
+      - name: Container smoke test
+        run: |
+          docker run -d --name control-test -p 127.0.0.1:8080:8080 -e DEMO_MODE=true -e DEMO_ALLOW_REMOTE=true zerotier-control:test
+          trap 'docker logs control-test; docker rm -f control-test' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8080/api/session | python3 -c 'import json,sys; assert json.load(sys.stdin)["demo"] is True'
+          curl --fail --silent http://127.0.0.1:8080/ | grep -q 'ZeroTier Control'
+      - name: Verify existing Planet sidecar deployment
+        env:
+          ZT_CONTAINER_NAME: zt-mock-ci
+          ZT_PORT: '9994'
+          ZT_TOKEN_PATH: /tmp/zt-control-ci/token
+          ADMIN_PASSWORD_PATH: /tmp/zt-control-ci/password
+        run: |
+          mkdir -p /tmp/zt-control-ci
+          printf '%s\n' 'ci-controller-token' > /tmp/zt-control-ci/token
+          printf '%s\n' 'ci-admin-password-only' > /tmp/zt-control-ci/password
+          chmod 600 /tmp/zt-control-ci/token /tmp/zt-control-ci/password
+          docker run -d --name zt-mock-ci --mount "type=bind,src=$PWD/test/mock-controller.js,dst=/mock.js,readonly" node:24-bookworm-slim node /mock.js
+          trap 'docker compose -p control-ci -f deploy/compose.planet.yaml logs; docker compose -p control-ci -f deploy/compose.planet.yaml down -v; docker rm -f zt-mock-ci' EXIT
+          docker compose -p control-ci -f deploy/compose.planet.yaml up -d --build --wait --wait-timeout 90
+          node test/container-check.js

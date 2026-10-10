@@ -1,0 +1,17 @@
+{
+  "name": "zerotier-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A self-hosted ZeroTier controller dashboard",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "demo": "node server/index.js --demo",
+    "dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "check": "node scripts/check.js",
+    "test": "node --test test/*.test.js",
+    "password": "node scripts/password.js"
+  },
+  "license": "MIT"
+}

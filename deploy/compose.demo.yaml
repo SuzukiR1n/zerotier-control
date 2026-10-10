@@ -1,0 +1,13 @@
+services:
+  control:
+    build:
+      context: ..
+    image: zerotier-control:local
+    init: true
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      DEMO_MODE: "true"
+      DEMO_ALLOW_REMOTE: "true"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+const base = 'http://127.0.0.1:8080';
+const response = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'ci-admin-password-only' }) });
+assert.equal(response.status, 200);
+const cookie = response.headers.get('set-cookie').split(';')[0];
+const status = await fetch(base + '/api/status', { headers: { Cookie: cookie } });
+assert.equal(status.status, 200); assert.equal((await status.json()).version, '1.14.1');
+const networks = await fetch(base + '/api/networks', { headers: { Cookie: cookie } });
+assert.equal(networks.status, 200); assert.equal((await networks.json())[0].memberCount, 1);
+const members = await fetch(base + '/api/networks/a1b2c3d4e5abcdef/members', { headers: { Cookie: cookie } });
+assert.equal(members.status, 200); assert.equal((await members.json())[0].name, 'CI Member');
+console.log('Planet sidecar → Unix socket → gateway → login → controller API passed.');

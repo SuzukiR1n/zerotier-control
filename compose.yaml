@@ -1,0 +1,39 @@
+# Linux 原生 ZeroTier 服务：同一个主机网络，可直接访问 localhost 的控制器 API。
+services:
+  control:
+    build: .
+    image: zerotier-control:local
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    # 主机的 authtoken.secret 通常只有 root 能读取。只读挂载，容器移除全部 capabilities。
+    user: "0:0"
+    environment:
+      HOST: 127.0.0.1
+      PORT: "8080"
+      ZT_API_URL: ${ZT_API_URL:-http://127.0.0.1:9993}
+      ZT_TOKEN_FILE: /run/secrets/zt-token
+      ADMIN_PASSWORD_FILE: /run/secrets/admin-password
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    volumes:
+      - type: bind
+        source: ${ZT_TOKEN_PATH:?请设置 ZT_TOKEN_PATH}
+        target: /run/secrets/zt-token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ADMIN_PASSWORD_PATH:-./secrets/admin-password}
+        target: /run/secrets/admin-password
+        read_only: true
+        bind:
+          create_host_path: false
+      - control-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+volumes:
+  control-data:

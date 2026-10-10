@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+data/
+secrets/
+node_modules/
+*.log
+*.tar
+*.zip
+.DS_Store
