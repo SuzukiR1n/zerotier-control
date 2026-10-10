@@ -4,7 +4,7 @@
 
 **自建 Planet + ZeroTier 1.16.2 控制器 + 全新中文 Web 管理界面。** 在空服务器上独立部署，首次启动生成自己的身份和 Planet 文件，随后在网页创建网络、授权成员。
 
-**v0.4.0 · 用户名登录与首次强制修改 · 可配置下载加速 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
+**v0.4.1 · 用户名登录与首次强制修改 · 镜像源失败自动切换 · 可配置下载加速 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
 
 ZeroTier 当前锁定官方稳定版 [1.16.2](https://github.com/zerotier/ZeroTierOne/releases/tag/1.16.2)，源码提交与下载 SHA-256 均固定在 `Dockerfile.zerotier` 中。新版本将本地控制器移到了 `nonfree/`，构建显式启用 `ZT_NONFREE=1`。使用文件数据库，不需要 PostgreSQL、Redis 或 Central 账号。
 
@@ -232,23 +232,26 @@ bash deploy.sh downloads
 bash deploy.sh install
 ```
 
-线路菜单包含公开加速源、自定义和官方直连。公开线路选项目前使用 [1Panel 镜像站](https://docker.1panel.dev/) 和 [GH-Proxy](https://gh-proxy.com/docs/github-accelerator)，属于第三方公共服务，实际可用性和速度取决于服务器线路，可随时更换。
+线路菜单包含公开加速源、自定义和官方直连。公开线路默认从 [1MS 镜像站](https://1ms.run/guide) 开始，失败时在 `docker.1ms.run`、`docker.1panel.dev`、`docker.m.daocloud.io`、`dockerproxy.net` 和 `dockerproxy.link` 之间依次尝试；GitHub 使用 [GH-Proxy](https://gh-proxy.com/docs/github-accelerator)。这些是第三方公共服务，实际可用性和速度取决于服务器线路。
 
 也可一次指定并保存：
 
 ```sh
-bash deploy.sh downloads --docker-registry docker.1panel.dev --github-proxy https://gh-proxy.org/
+bash deploy.sh downloads --docker-registry docker.1ms.run --docker-fallbacks auto --github-proxy https://gh-proxy.org/
 bash deploy.sh install
 ```
 
 配置保存在权限 600 的 `.download.env`，不提交到 Git：
 
 ```dotenv
-DOCKER_REGISTRY=docker.1panel.dev
+DOCKER_REGISTRY=docker.1ms.run
+DOCKER_REGISTRY_FALLBACKS=auto
 GITHUB_PROXY=https://gh-proxy.org/
 ```
 
 Docker 配置作用于 **Node、Debian、Python 和 Nginx**。它直接指定本项目镜像仓库，覆盖镜像拉取和 Dockerfile 的 `FROM`，不修改 `/etc/docker/daemon.json`，不需要重启 Docker，也不依赖独立 BuildKit 是否读取 Docker 的守护进程配置。自建源须支持 `/v2/` Registry API 和 `library/镜像名`，例如 `registry.example.com/library/node:24-bookworm-slim`。[Docker 镜像站说明](https://docs.docker.com/docker-hub/image-library/mirror/)
+
+候补配置可以是 `auto`（上述公开源）、`none`（只使用指定源），或逗号分隔的域名，例如 `--docker-fallbacks backup.example.com,registry.example.com:5000`。旧配置使用上述公开域名且没有候补字段时会自动启用切换；自建源和官方直连默认不切换。选定源始终优先，重复地址只尝试一次。每个源必须备齐本次操作需要的镜像才会保存为新线路，GitHub 配置继续保留。直接运行 Compose 或 Docker 不执行脚本的候补逻辑。
 
 GitHub 配置作用于 ZeroTier 源码归档下载和脚本中的仓库更新。代理须支持 `前缀/https://github.com/...`；用于 `git pull` 时还需支持 Git Smart HTTP。仅对这次公开仓库拉取设置地址替换，不写全局 Git 配置。源码提交和 SHA-256 保持固定，代理返回错误页面或不同内容时停止编译。
 
@@ -272,7 +275,7 @@ git remote set-url origin https://github.com/SuzukiR1n/zerotier-control.git
 
 ### 下载中断后的继续安装
 
-如果下载 `nginx:stable-alpine` 时出现 `unexpected EOF`、`short read` 或超时，说明 Docker 没有取得完整下载结果；具体原因可能在网络、代理或镜像源。脚本会在启动容器前拉取网页入口镜像，失败时最多尝试 3 次，间隔 5 秒和 10 秒；全部失败后保留配置和数据并退出。
+如果出现 `connection reset by peer`、`unexpected EOF`、`short read` 或超时，说明 Docker 没有取得完整下载结果；具体原因可能在网络、代理或镜像源。脚本会先准备 Node、Debian、Python 和 Nginx 镜像，再构建并启动服务。每个缺失镜像在当前源最多尝试 3 次，间隔 5 秒和 10 秒；仍失败时切换候补源。取消操作会立即停止，所有线路失败时保留下载配置、数据和已有容器。更新也会在备份和停止服务前检查镜像。
 
 配置下载加速后，在项目目录继续安装：
 
@@ -280,7 +283,7 @@ git remote set-url origin https://github.com/SuzukiR1n/zerotier-control.git
 bash deploy.sh install
 ```
 
-旧版脚本也可先执行 `docker compose pull gateway`，成功后再运行 `bash deploy.sh install`。已下载的完整镜像层会复用；不用重新填写公网 IP。若持续失败，检查服务器 Docker 守护进程使用的代理或镜像源；仅设置当前终端的代理不一定影响 Docker 拉取。[Docker 镜像拉取与代理说明](https://docs.docker.com/reference/cli/docker/image/pull/)
+旧版脚本遇到某个镜像站连接重置时，可以先运行上面的 `downloads` 命令换源，再运行 `install`。已有完整镜像层会复用，不用重新填写公网 IP。若所有线路持续失败，需要检查服务器到这些镜像站的网络；仅设置当前终端的代理不一定影响 Docker 拉取。[Docker 镜像拉取与代理说明](https://docs.docker.com/reference/cli/docker/image/pull/)
 
 ## 仅体验 Web 界面
 
@@ -302,13 +305,13 @@ python3 -m unittest discover -s test -p '*_test.py'
 
 受限 Windows 环境不能创建测试子进程时，可用 `node --test --test-isolation=none test/app.test.js test/planet.test.js test/deploy-config.test.js`。
 
-GitHub Actions 检查部署脚本语法和 ShellCheck，测试用户名登录、首次强制修改、防止跳过设置、账号持久化、并发首次设置、会话失效、CSRF、频率限制、校验和网络成员操作。真实容器流程将四种基础镜像放入隔离 Registry，再通过该 Registry 完成构建、首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥和账号完整、重置后旧账号失效、默认账号再次要求修改，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。另行验证 GitHub 代理下载重试、校验不符时停止、仅对本次 Git 拉取改写地址，并模拟镜像拉取两次失败后恢复、持续失败后退出且不重建已有容器。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
+GitHub Actions 检查部署脚本语法和 ShellCheck，测试用户名登录、首次强制修改、防止跳过设置、账号持久化、并发首次设置、会话失效、CSRF、频率限制、校验和网络成员操作。真实容器流程将四种基础镜像放入隔离 Registry，再通过该 Registry 完成构建、首次安装、重复安装、备份更新、密码重置、移除容器后重新安装，验证 Planet 和身份不变、备份密钥和账号完整、重置后旧账号失效、默认账号再次要求修改，以及实际 ZeroTier 1.16.2 客户端接入私有 Planet、网页授权并获取地址。另行验证 GitHub 代理下载重试、校验不符时停止、仅对本次 Git 拉取改写地址，以及镜像源自动切换、部分镜像缺失时继续换源、取消时停止、缓存复用；真实 Docker 模拟主源不可用后切换、两次拉取失败后恢复、持续失败后保留配置和运行中的容器。客户端测试单独使用 TUN 权限，生产控制器不需要这些权限。
 
 CI 使用隔离的测试地址和随机运行时身份，不证明实际公网线路、NAT 穿透或跨地区稳定性。部署后仍应在自己的设备上确认连接。
 
 ## 版本范围
 
-v0.4.0 提供下载线路配置、部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
+v0.4.1 提供下载线路配置、部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
 
 成员列表显示授权状态，不是实时在线表；节点连接页显示控制器自身的 `/peer` 路径。删除正在申请加入的成员后，该设备仍可能再次出现在待授权列表。
 

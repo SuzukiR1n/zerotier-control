@@ -9,6 +9,7 @@ import { isPasswordHash, matches } from '../server/account.js';
 const config = parseConfig(await readFile('.env', 'utf8'));
 const downloads = await readFile('.download.env', 'utf8');
 assert.ok(downloads.includes('DOCKER_REGISTRY=127.0.0.1:5000'));
+assert.ok(downloads.includes('DOCKER_REGISTRY_FALLBACKS=127.0.0.1:5000'));
 const state = JSON.parse(await readFile('/tmp/zt-control-ci/state.json', 'utf8'));
 assert.equal(config.COMPOSE_PROJECT_NAME, 'control-ci');
 assert.equal((await stat('.env')).mode & 0o777, 0o600);

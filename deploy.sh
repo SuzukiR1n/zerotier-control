@@ -8,7 +8,7 @@ COMMAND="${1:-menu}"
 [[ $# -eq 0 ]] || shift
 IP='' IPV6='' ZT_PORT_OPTION='' WEB_PORT_OPTION='' ACCESS='' ORIGIN='' PROJECT=''
 SKIP_PULL=false
-DOCKER_REGISTRY_OPTION='' GITHUB_PROXY_OPTION='' DOWNLOAD_OPTIONS=false
+DOCKER_REGISTRY_OPTION='' DOCKER_FALLBACKS_OPTION='' GITHUB_PROXY_OPTION='' DOWNLOAD_OPTIONS=false
 EXTRA_COMPOSE=()
 RESTART_AFTER_BACKUP=()
 
@@ -35,6 +35,7 @@ ZeroTier Control 部署工具
   --project-name 名称         首次设置独立的 Compose 部署名称
   --compose-file 文件         追加 Compose 配置（可重复）
   --docker-registry 域名       项目使用的 Docker Hub 加速仓库
+  --docker-fallbacks auto|none|域名列表  自动切换公开源 / 单一源 / 逗号分隔候补
   --github-proxy HTTPS前缀     GitHub 源码和仓库加速；direct 表示直连
   update --skip-pull          只备份并重建当前源码，不拉取 Git
 已有 .env 时会沿用配置；修改 IP / 端口须按 README 的 Planet 更新流程操作。
@@ -42,13 +43,14 @@ HELP
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file|--docker-registry|--github-proxy)
+    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file|--docker-registry|--docker-fallbacks|--github-proxy)
       [[ $# -ge 2 && -n "$2" ]] || fail "$1 缺少值"
       case "$1" in
         --ip) IP="$2";; --ipv6) IPV6="$2";; --zt-port) ZT_PORT_OPTION="$2";;
         --web-port) WEB_PORT_OPTION="$2";; --access) ACCESS="$2";; --origin) ORIGIN="$2";;
         --project-name) PROJECT="$2";; --compose-file) EXTRA_COMPOSE+=(-f "$2");;
         --docker-registry) DOCKER_REGISTRY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
+        --docker-fallbacks) DOCKER_FALLBACKS_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
         --github-proxy) GITHUB_PROXY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
       esac
       shift 2;;
@@ -119,23 +121,14 @@ require_docker() {
 }
 web_image() {
   if ! docker image inspect zerotier-control:local >/dev/null 2>&1; then
+    prepare_images missing node:24-bookworm-slim
     printf '准备部署工具（首次需要构建 Web 镜像）……\n'
     docker build --build-arg "DOCKER_REGISTRY=$DOCKER_REGISTRY" -t zerotier-control:local .
   fi
 }
-pull_gateway() {
-  local policy="${1:-missing}" attempt code
-  # Fetch before creating/recreating containers. A failed pull is safe to retry.
-  for attempt in 1 2 3; do
-    printf '准备网页入口镜像（第 %s/3 次）……\n' "$attempt"
-    if compose pull --policy "$policy" gateway; then return 0; else code=$?; fi
-    if [[ "$code" -eq 130 || "$code" -eq 143 ]]; then return "$code"; fi
-    if [[ "$attempt" -lt 3 ]]; then
-      printf '镜像拉取失败，%s 秒后重试。已下载的完整镜像层会复用。\n' "$((attempt * 5))" >&2
-      sleep "$((attempt * 5))"
-    fi
-  done
-  fail '网页入口镜像连续 3 次拉取失败。配置和数据已保留。请检查 Docker 的网络、代理或镜像源；恢复后运行 bash deploy.sh install 继续。'
+prepare_stack_images() {
+  # Preflight all FROM images and the gateway before building or replacing containers.
+  prepare_images "${1:-missing}" node:24-bookworm-slim debian:bookworm-slim python:3.13-slim-bookworm nginx:stable-alpine
 }
 helper() {
   docker run --rm --user 0:0 --network none --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add FOWNER --security-opt no-new-privileges:true \
@@ -228,9 +221,10 @@ install_stack() {
   else configure; fi
   load_config
   helper password
-  pull_gateway
+  prepare_stack_images
   printf '构建并启动 ZeroTier、Planet 和新 Web；首次编译可能需要数分钟……\n'
-  compose up -d --build --pull never --wait --wait-timeout 180
+  compose build
+  compose up -d --no-build --pull never --wait --wait-timeout 180
   export_planet
   info
 }
@@ -241,16 +235,16 @@ update_stack() {
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail '当前目录不是 Git 仓库；使用 update --skip-pull 重建下载的源码。'
     if ! git diff --quiet || ! git diff --cached --quiet; then fail '有未提交的源码修改，请先保存修改；更新不会覆盖它们。'; fi
   fi
+  prepare_stack_images always
   backup
   if [[ "$SKIP_PULL" == false ]]; then pull_project; fi
-  pull_gateway always
-  compose build --pull
-  compose up -d --force-recreate --pull never --wait --wait-timeout 180
+  compose build
+  compose up -d --no-build --force-recreate --pull never --wait --wait-timeout 180
   export_planet
   info
 }
 reset_password() {
-  pull_gateway
+  prepare_stack_images
   compose build control
   backup
   compose stop control

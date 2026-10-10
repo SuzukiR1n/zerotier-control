@@ -23,8 +23,9 @@ jobs:
           bash -n deploy.sh
           bash -n test/docker-pull-fault.sh
           bash -n deploy/downloads.sh
-          shellcheck deploy.sh deploy/downloads.sh test/docker-pull-fault.sh test/downloads_test.sh planet/download-source.sh
+          shellcheck deploy.sh deploy/downloads.sh test/docker-pull-fault.sh test/downloads_test.sh test/download_images_test.sh planet/download-source.sh
           bash test/downloads_test.sh
+          bash test/download_images_test.sh
       - name: Validate Compose configurations
         run: |
           docker compose config --quiet
@@ -54,9 +55,13 @@ jobs:
             docker tag "docker.io/library/$image" "127.0.0.1:5000/library/$image"
             docker push "127.0.0.1:5000/library/$image"
           done
-          sudo bash deploy.sh downloads --docker-registry 127.0.0.1:5000 --github-proxy direct
+          docker image rm 127.0.0.1:5000/library/nginx:stable-alpine
+          sudo bash deploy.sh downloads --docker-registry 127.0.0.1:5001 --docker-fallbacks 127.0.0.1:5000 --github-proxy direct
           sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --ip 172.30.0.2 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
+          test "$(sudo cat /tmp/zt-control-ci/pull-fault/primary-attempts | wc -l)" -eq 3
+          sudo grep -Fx 'DOCKER_REGISTRY=127.0.0.1:5000' .download.env
+          sudo grep -Fx 'DOCKER_REGISTRY_FALLBACKS=127.0.0.1:5000' .download.env
           sudo "$node_binary" test/container-check.js
           docker create --name zt-client-ci --network control-ci_default --cap-add NET_ADMIN --device /dev/net/tun --entrypoint zerotier-one zerotier-control-planet:1.16.2 -U -p9993 /var/lib/zerotier-one
           docker cp /tmp/zt-control-ci/planet zt-client-ci:/var/lib/zerotier-one/planet
@@ -64,14 +69,16 @@ jobs:
           sudo "$node_binary" test/client-check.js
           docker rm -f zt-client-ci
           before_containers="$(sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml ps -q | sort)"
+          sudo cp .download.env /tmp/zt-control-ci/download-profile-before
           sudo sh -c ': > /tmp/zt-control-ci/pull-fault/permanent; echo 0 > /tmp/zt-control-ci/pull-fault/attempts'
           if sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --compose-file deploy/compose.ci.yaml; then
             echo 'A permanent pull failure must stop deployment'; exit 1
           fi
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
           test "$before_containers" = "$(sudo docker compose -p control-ci -f compose.yaml -f deploy/compose.ci.yaml ps -q | sort)"
+          sudo cmp .download.env /tmp/zt-control-ci/download-profile-before
           sudo "$node_binary" test/container-check.js --after-restart
-          echo 'Pull retries recovered after two faults; permanent failure preserved running containers.'
+          echo 'Unavailable primary switched to fallback; pull retries recovered; permanent failure preserved configuration and running containers.'
           sudo bash deploy.sh install --compose-file deploy/compose.ci.yaml
           sudo "$node_binary" test/container-check.js --after-restart
           sudo bash deploy.sh update --skip-pull --compose-file deploy/compose.ci.yaml
