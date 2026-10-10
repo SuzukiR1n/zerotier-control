@@ -56,6 +56,12 @@ services:
   gateway:
     image: nginx:stable-alpine
     restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 10
     depends_on:
       control:
         condition: service_healthy
