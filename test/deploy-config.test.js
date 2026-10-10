@@ -55,7 +55,7 @@ test('bootstrap defaults to admin, preserves legacy secrets and resets explicitl
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     const outside = join(root, 'outside'); await writeFile(outside, 'untouched');
     const link = join(root, 'secrets', 'link'); await symlink(outside, link);
-    await assert.rejects(ensurePassword(root, { ...config, ADMIN_PASSWORD_PATH: './secrets/link' }, true), /��������/);
+    await assert.rejects(ensurePassword(root, { ...config, ADMIN_PASSWORD_PATH: './secrets/link' }, true), /符号链接/);
     assert.equal(await readFile(outside, 'utf8'), 'untouched');
   }
 });

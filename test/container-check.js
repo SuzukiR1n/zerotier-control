@@ -36,7 +36,7 @@ if (!afterRestart || afterReset) {
   csrf = session.csrf; cookie = changed.headers.get('set-cookie').split(';')[0];
   assert.equal((await fetch(base + '/api/networks', { headers: { Cookie: restrictedCookie } })).status, 401);
   await writeFile(accountPath, JSON.stringify(credentials), { mode: 0o600 });
-  console.log('Initial admin login �� forced credential change �� restricted session invalidation passed.');
+  console.log('Initial admin login → forced credential change → restricted session invalidation passed.');
 } else {
   assert.equal(session.mustChangeCredentials, false); assert.equal(session.user, credentials.username);
 }
@@ -61,5 +61,5 @@ if (afterRestart) {
   assert.equal((await api(`/networks/${n.id}/members`))[0].name, 'CI Member');
   await writeFile('/tmp/zt-control-ci/planet', bytes);
   await writeFile(saved, JSON.stringify({ address: status.address, sha256: planet.sha256, networkId: n.id }));
-  console.log('Fresh 1.16.2 controller �� Web login �� network/member/DNS �� Planet download passed.');
+  console.log('Fresh 1.16.2 controller → Web login → network/member/DNS → Planet download passed.');
 }

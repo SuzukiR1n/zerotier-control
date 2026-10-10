@@ -32,15 +32,15 @@ async function initialAccount(config) {
     const seed = config.passwordFile ? (await readFile(config.passwordFile, 'utf8')).trim() : 'admin';
     if (isPasswordHash(seed)) hash = seed;
     else {
-      if (seed !== 'admin' && !validPassword(seed)) throw new Error('��ʼ�������Ϊ admin �� 12�C256 ���ַ�');
+      if (seed !== 'admin' && !validPassword(seed)) throw new Error('初始密码必须为 admin 或 12–256 个字符');
       hash = await passwordHash(seed);
     }
   }
-  if (!hashPattern.test(hash)) throw new Error('ADMIN_PASSWORD_HASH ��ʽ��Ч');
+  if (!hashPattern.test(hash)) throw new Error('ADMIN_PASSWORD_HASH 格式无效');
   return { format: 'zerotier-control-account-v1', username: 'admin', passwordHash: hash, mustChangeCredentials: true };
 }
 export async function resetAccount(dataDir) {
-  if (!dataDir) throw new Error('�����˺���Ҫ DATA_DIR');
+  if (!dataDir) throw new Error('重置账号需要 DATA_DIR');
   await saveAccount(dataDir, await initialAccount({}));
 }
 export async function accountStore(config) {
@@ -49,8 +49,8 @@ export async function accountStore(config) {
     const path = join(config.dataDir, 'admin-account.json');
     const saved = await readFile(path, 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
     if (saved !== null) {
-      try { current = JSON.parse(saved); } catch { throw new Error('����Ա�˺��ļ��𻵣���ʹ�ò���ű������˺�'); }
-      if (current?.format !== 'zerotier-control-account-v1' || !validUsername(current.username) || !hashPattern.test(current.passwordHash) || typeof current.mustChangeCredentials !== 'boolean') throw new Error('����Ա�˺��ļ���ʽ��Ч����ʹ�ò���ű������˺�');
+      try { current = JSON.parse(saved); } catch { throw new Error('管理员账号文件损坏，请使用部署脚本重置账号'); }
+      if (current?.format !== 'zerotier-control-account-v1' || !validUsername(current.username) || !hashPattern.test(current.passwordHash) || typeof current.mustChangeCredentials !== 'boolean') throw new Error('管理员账号文件格式无效，请使用部署脚本重置账号');
       await chmod(path, 0o600);
     }
   }

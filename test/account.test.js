@@ -89,7 +89,7 @@ test('credentials and setup completion persist across restarts, hash passwords a
   assert.equal((await next('/networks')).res.status, 200);
   await restarted.stop();
   await writeFile(join(f.dir, 'admin-account.json'), '{broken');
-  await assert.rejects(createApp({ dataDir: f.dir }), /�˺��ļ���/);
+  await assert.rejects(createApp({ dataDir: f.dir }), /账号文件损坏/);
 });
 
 test('legacy password migration requires changing both values and later edits require the current password', async t => {

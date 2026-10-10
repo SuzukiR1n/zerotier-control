@@ -31,4 +31,4 @@ assert.ok(network.assignedAddresses.some(ip => ip.startsWith('10.42.0.')));
 const root = JSON.parse(cli('-j', 'listpeers')).find(p => p.address === address);
 assert.equal(root?.role, 'PLANET');
 assert.ok(root.paths.some(p => p.active));
-console.log('Real ZeroTier 1.16.2 client �� private Planet �� pending member �� Web authorization �� assigned IP / OK passed.');
+console.log('Real ZeroTier 1.16.2 client → private Planet → pending member → Web authorization → assigned IP / OK passed.');
