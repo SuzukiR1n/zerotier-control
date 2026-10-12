@@ -12,3 +12,5 @@ dialog{border:1px solid var(--line);padding:0;border-radius:13px;background:var(
 
 .account-panel{max-width:560px}.account-panel form>p.muted{font-size:12px;line-height:1.8}
 .clipboard-helper{position:fixed;left:-9999px;top:0;width:1px;height:1px;padding:0;border:0;opacity:0;font-size:16px}
+
+.peer-device-cell{min-width:190px}.peer-device-cell>div:last-child{min-width:0;max-width:320px}.peer-device-cell strong{overflow-wrap:anywhere}

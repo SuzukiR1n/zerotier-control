@@ -63,7 +63,7 @@ export async function createApp(config) {
     return { id, ...s };
   }
   function sessionInfo(s) {
-    return { authenticated: !!s, csrf: s?.csrf, demo, user: s ? (demo ? 'admin' : accounts.current.username) : null, mustChangeCredentials: !!s?.mustChangeCredentials, version: '0.4.3' };
+    return { authenticated: !!s, csrf: s?.csrf, demo, user: s ? (demo ? 'admin' : accounts.current.username) : null, mustChangeCredentials: !!s?.mustChangeCredentials, version: '0.4.4' };
   }
   function checkOrigin(req) {
     const expected = origin ?? `${secure ? 'https' : 'http'}://${req.headers.host}`;

@@ -9,6 +9,31 @@ export async function mapLimit(items, limit, fn) {
   }));
   return results;
 }
+async function peerDeviceNames(controller, peers) {
+  if (!Array.isArray(peers) || peers.some(p => !p || typeof p.address !== 'string' || !/^[0-9a-f]{10}$/i.test(p.address))) throw new HttpError(502, '控制器节点连接列表格式不正确');
+  if (!peers.length) return [];
+  const names = new Map(peers.map(p => [p.address.toLowerCase(), new Set()]));
+  const unavailable = new Set();
+  let networks;
+  try { networks = await controller.networkIds(); }
+  catch { networks = []; for (const id of names.keys()) unavailable.add(id); }
+  const lookups = (await mapLimit(networks, 6, async network => {
+    try {
+      return (await controller.memberIds(network)).filter(id => names.has(id.toLowerCase())).map(id => ({ network, id }));
+    } catch (e) {
+      // A network removed while refreshing is harmless. Keep connections visible if name lookup fails.
+      if (e.status !== 404) for (const id of names.keys()) unavailable.add(id);
+      return [];
+    }
+  })).flat();
+  await mapLimit(lookups, 8, async ({ network, id }) => {
+    try {
+      const member = await controller.member(network, id);
+      if (typeof member.name === 'string' && member.name.trim()) names.get(id.toLowerCase()).add(member.name.trim());
+    } catch (e) { if (e.status !== 404) unavailable.add(id.toLowerCase()); }
+  });
+  return peers.map(p => ({ ...p, deviceNames: [...names.get(p.address.toLowerCase())].sort(), deviceNamesUnavailable: unavailable.has(p.address.toLowerCase()) }));
+}
 export class Controller {
   constructor({ url, tokenFile, token }) {
     const u = new URL(url);
@@ -32,22 +57,28 @@ export class Controller {
     try { return raw ? JSON.parse(raw) : {}; } catch { throw new HttpError(502, '控制器返回了无法识别的数据'); }
   }
   status() { return this.request('/status'); }
-  peers() { return this.request('/peer'); }
-  async networks() {
+  async peers() { return peerDeviceNames(this, await this.request('/peer')); }
+  async networkIds() {
     const ids = await this.request('/controller/network');
-    if (!Array.isArray(ids) || ids.some(id => !/^[0-9a-f]{16}$/i.test(id))) throw new HttpError(502, '控制器网络列表格式不正确');
-    return mapLimit(ids, 6, async id => {
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{16}$/i.test(id))) throw new HttpError(502, '控制器网络列表格式不正确');
+    return ids;
+  }
+  async networks() {
+    return mapLimit(await this.networkIds(), 6, async id => {
       const [n, members] = await Promise.all([this.network(id), this.request(`/controller/network/${id}/member`)]);
       return { ...n, memberCount: Object.keys(members).length };
     });
   }
   network(id) { return this.request(`/controller/network/${id}`); }
-  async members(id) {
+  async memberIds(id) {
     const revisions = await this.request(`/controller/network/${id}/member`);
+    if (!revisions || typeof revisions !== 'object' || Array.isArray(revisions)) throw new HttpError(502, '控制器成员列表格式不正确');
     const ids = Object.keys(revisions);
     if (ids.some(x => !/^[0-9a-f]{10}$/i.test(x))) throw new HttpError(502, '控制器成员列表格式不正确');
-    return mapLimit(ids, 8, x => this.request(`/controller/network/${id}/member/${x}`));
+    return ids;
   }
+  member(id, member) { return this.request(`/controller/network/${id}/member/${member}`); }
+  async members(id) { return mapLimit(await this.memberIds(id), 8, x => this.member(id, x)); }
   async create(patch) {
     const s = await this.status();
     if (!/^[0-9a-f]{10}$/i.test(s.address)) throw new HttpError(502, '控制器节点 ID 不正确');
@@ -78,7 +109,18 @@ export class DemoController {
     });
   }
   async status() { return { address: 'a1b2c3d4e5', version: '1.16.2', online: true, tcpFallbackActive: false }; }
-  async peers() { return [{ address: '7f1234abcd', role: 'PLANET', latency: 28, versionMajor: 1, versionMinor: 16, versionRev: 2, paths: [{ address: '203.0.113.10/9993', active: true, preferred: true }] }, { address: '8e2345bcde', role: 'PLANET', latency: 86, paths: [{ address: '198.51.100.20/9993', active: true, preferred: false }] }]; }
+  async peers() {
+    const member = this.people.values().next().value?.values().next().value;
+    return peerDeviceNames(this, [
+      { address: '7f1234abcd', role: 'PLANET', latency: 28, versionMajor: 1, versionMinor: 16, versionRev: 2, paths: [{ address: '203.0.113.10/9993', active: true, preferred: true }] },
+      { address: '8e2345bcde', role: 'PLANET', latency: 86, paths: [{ address: '198.51.100.20/9993', active: true, preferred: false }] },
+      ...(member ? [{ address: member.id, role: 'LEAF', latency: 12, paths: [{ address: '192.0.2.30/9993', active: true, preferred: true }] }] : []),
+      { address: '012345abcd', role: 'LEAF', latency: -1, paths: [] }
+    ]);
+  }
+  async networkIds() { return [...this.items.keys()]; }
+  async memberIds(id) { await this.network(id); return [...this.people.get(id).keys()]; }
+  async member(id, mid) { await this.network(id); const member = this.people.get(id).get(mid); if (!member) throw new HttpError(404, '成员不存在'); return structuredClone(member); }
   async networks() { return [...this.items.values()].map(n => ({ ...structuredClone(n), memberCount: this.people.get(n.id).size })); }
   async network(id) { if (!this.items.has(id)) throw new HttpError(404, '网络不存在'); return structuredClone(this.items.get(id)); }
   async members(id) { await this.network(id); return [...this.people.get(id).values()].map(m => structuredClone(m)); }

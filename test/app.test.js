@@ -89,6 +89,22 @@ test('create, edit, member authorize, address assignment, export and delete work
   assert.equal((await f.call(`/networks/${id}`)).res.status, 404);
   assert.ok((await f.call('/audit')).data.some(x => x.action === 'member.authorize'));
 });
+
+test('peer device names follow member edits across networks through the authenticated API', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.call('/peers')).res.status, 401);
+  await f.call('/session');
+  const networks = (await f.call('/networks')).data;
+  const member = (await f.call(`/networks/${networks[0].id}/members`)).data[0];
+  const peers = (await f.call('/peers')).data;
+  assert.deepEqual(peers.find(p => p.address === member.id).deviceNames, [member.name]);
+  assert.deepEqual(peers.find(p => p.role === 'PLANET').deviceNames, []);
+  await f.call(`/networks/${networks[0].id}/members/${member.id}`, 'PATCH', { name: 'Renamed device' });
+  await f.call(`/networks/${networks[1].id}/members/${member.id}`, 'PATCH', { name: 'Another network alias' });
+  const updated = (await f.call('/peers')).data.find(p => p.address === member.id);
+  assert.deepEqual(updated.deviceNames, ['Another network alias', 'Renamed device']);
+  assert.equal(updated.deviceNamesUnavailable, false);
+});
 test('malformed IDs, invalid subnet and unsupported edits never reach controller mutation', async t => {
   const f = await fixture(t); await f.call('/session');
   assert.equal((await f.call('/networks', 'POST', { name: 'Bad subnet', cidr: '10.0.0.1/24' })).res.status, 400);
@@ -125,6 +141,7 @@ test('real adapter follows 1.14.1 stable member revision map and sends partial u
     seen.push({ path: req.url, method: req.method, auth: req.headers['x-zt1-auth'], data });
     res.setHeader('content-type', 'application/json');
     if (req.url === '/status') res.end(JSON.stringify({ address: 'a1b2c3d4e5', version: '1.14.1' }));
+    else if (req.url === '/peer') res.end(JSON.stringify([{ address: mid, role: 'LEAF', latency: 12, paths: [] }]));
     else if (req.url === '/controller/network') res.end(JSON.stringify([id]));
     else if (req.url === `/controller/network/${id}`) res.end(JSON.stringify({ id, name: 'Real shape' }));
     else if (req.url === `/controller/network/${id}/member`) res.end(JSON.stringify({ [mid]: 4 }));
@@ -142,6 +159,7 @@ test('real adapter follows 1.14.1 stable member revision map and sends partial u
   await f.call(`/networks/${id}/members/${mid}`, 'PATCH', { name: 'After' });
   assert.equal(member.activeBridge, true);
   assert.deepEqual(seen.find(x => x.method === 'POST').data, { name: 'After' });
+  assert.deepEqual((await f.call('/peers')).data[0].deviceNames, ['After']);
   await controller.create({ name: 'New', private: true });
   assert.ok(seen.some(x => x.path.endsWith('______')));
   await controller.deleteMember(id, mid);
