@@ -8,11 +8,11 @@ trap '[[ "$ROOT" == "$TEST_TEMP_BASE"/zt-git-download.* ]] && rm -rf -- "$ROOT"'
 fail() { printf '%s\n' "$*" >&2; exit 22; }
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$ROOT/global.config"
 : > "$GIT_CONFIG_GLOBAL"
-git init -q "$ROOT/repo"
+command git init -q "$ROOT/repo"
 cd "$ROOT/repo"
-git remote add origin https://github.com/SuzukiR1n/zerotier-control.git
+command git remote add origin https://github.com/SuzukiR1n/zerotier-control.git
 # This fixture is the only global configuration file Git reads during the test.
-git config --global url.https://old-proxy.example/https://github.com/.insteadOf https://github.com/
+command git config --global url.https://old-proxy.example/https://github.com/.insteadOf https://github.com/
 GITHUB_PROXY=https://proxy.example.com/
 # Use real Git for reading/rewrite checks; intercept only the final network pull.
 git() {
