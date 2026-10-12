@@ -11,3 +11,4 @@ dialog{border:1px solid var(--line);padding:0;border-radius:13px;background:var(
 .client-steps{padding-left:22px;font-size:13px;line-height:1.9}.client-steps li{margin-bottom:10px}.client-paths{display:grid;grid-template-columns:90px minmax(0,1fr);gap:14px;font-size:12px;margin-top:25px}.client-paths dt{color:var(--muted)}.client-paths dd{margin:0;overflow-wrap:anywhere}.checksum{display:block;overflow-wrap:anywhere;font-size:12px;line-height:1.8}
 
 .account-panel{max-width:560px}.account-panel form>p.muted{font-size:12px;line-height:1.8}
+.clipboard-helper{position:fixed;left:-9999px;top:0;width:1px;height:1px;padding:0;border:0;opacity:0;font-size:16px}

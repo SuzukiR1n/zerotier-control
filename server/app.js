@@ -10,7 +10,7 @@ export { passwordHash } from './account.js';
 import { HttpError, insist, networkPatch, memberPatch, subnetDefaults, text, object } from './validation.js';
 
 const publicDir = fileURLToPath(new URL('../public/', import.meta.url));
-const files = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]]);
+const files = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/clipboard.js', ['clipboard.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]]);
 const token = () => randomBytes(32).toString('base64url');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
 function json(res, code, value) {
@@ -63,7 +63,7 @@ export async function createApp(config) {
     return { id, ...s };
   }
   function sessionInfo(s) {
-    return { authenticated: !!s, csrf: s?.csrf, demo, user: s ? (demo ? 'admin' : accounts.current.username) : null, mustChangeCredentials: !!s?.mustChangeCredentials, version: '0.4.2' };
+    return { authenticated: !!s, csrf: s?.csrf, demo, user: s ? (demo ? 'admin' : accounts.current.username) : null, mustChangeCredentials: !!s?.mustChangeCredentials, version: '0.4.3' };
   }
   function checkOrigin(req) {
     const expected = origin ?? `${secure ? 'https' : 'http'}://${req.headers.host}`;

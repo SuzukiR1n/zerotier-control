@@ -102,6 +102,10 @@ test('static resources have security headers and secrets cannot be read by a pat
   const home = await fetch(f.base);
   assert.equal(home.status, 200); assert.match(await home.text(), /ZeroTier Control/);
   assert.match(home.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  const clipboard = await fetch(f.base + '/clipboard.js');
+  assert.equal(clipboard.status, 200);
+  assert.match(clipboard.headers.get('content-type'), /text\/javascript/);
+  assert.match(await clipboard.text(), /export async function copyText/);
   assert.equal((await fetch(f.base + '/.env')).status, 404);
   assert.equal((await fetch(f.base + '/server/app.js')).status, 404);
   assert.equal((await fetch(f.base + '/%2e%2e/secrets/admin-password')).status, 404);

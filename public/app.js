@@ -1,3 +1,5 @@
+import { copyText } from './clipboard.js';
+
 const root = document.querySelector('#app'), modal = document.querySelector('#modal');
 const state = { view: 'overview', tab: 'members', networks: [], members: [], peers: [], audit: [], planet: null, selected: null, status: null, query: '', filter: 'all', busy: false, session: null, error: '', refreshed: null };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -47,7 +49,7 @@ function login() {
   root.innerHTML = `<main class="login-layout"><section class="login-art"><div class="brand">${logo()}</div><div><span class="eyebrow">YOUR NETWORK. YOUR CONTROL.</span><h1>距离更远，<br>连接依然简单。</h1><p>在自己的服务器上，管理自己的网络。</p><div class="login-mesh" aria-hidden="true">${icon('network')}</div></div><small>ZeroTier Control · 自托管网络管理</small></section><section class="login-form"><div class="form-card"><div class="mini-mark">${icon('shield')}</div><h2>${firstLogin ? '设置你的管理账号' : '欢迎回来'}</h2><p class="muted">${firstLogin ? '首次登录需要修改用户名和密码' : '登录你的网络管理空间'}</p>${form}<p class="login-foot">${icon('lock')} 安全会话 · 密钥仅保存在服务器</p></div></section></main>`;
 }
 function sidebar() {
-  return `<aside class="sidebar"><a class="brand" href="#overview" data-action="overview" aria-label="ZeroTier Control 网络总览">${logo()}</a><div class="workspace-label">工作空间</div><nav aria-label="主导航">${[['overview', 'grid', '网络总览'], ['networks', 'network', '全部网络'], ['peers', 'bolt', '节点连接'], ['planet', 'download', 'Planet 与客户端'], ['audit', 'log', '操作记录'], ['about', 'settings', '控制器信息'], ['account', 'lock', '账号设置']].map(([view, symbol, label]) => `<button data-action="${view}" aria-label="${label}" title="${label}" class="nav-item ${state.view === view ? 'active' : ''}">${icon(symbol)}<span>${label}</span>${view === 'networks' ? `<small>${state.networks.length}</small>` : ''}</button>`).join('')}</nav><div class="side-bottom"><div class="controller-mini"><span class="status-dot ${state.status ? '' : 'gray'}"></span><div><strong>${state.status ? '控制器已连接' : '控制器未连接'}</strong><code>${escape(state.status?.address ?? '等待连接')}</code></div></div><div class="side-actions">${button(icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'), 'theme', 'icon-btn', 'aria-label="切换明暗主题" title="切换明暗主题"')}<span>v0.4.2</span>${button(icon('logout'), 'logout', 'icon-btn', 'aria-label="退出登录" title="退出登录"')}</div></div></aside>`;
+  return `<aside class="sidebar"><a class="brand" href="#overview" data-action="overview" aria-label="ZeroTier Control 网络总览">${logo()}</a><div class="workspace-label">工作空间</div><nav aria-label="主导航">${[['overview', 'grid', '网络总览'], ['networks', 'network', '全部网络'], ['peers', 'bolt', '节点连接'], ['planet', 'download', 'Planet 与客户端'], ['audit', 'log', '操作记录'], ['about', 'settings', '控制器信息'], ['account', 'lock', '账号设置']].map(([view, symbol, label]) => `<button data-action="${view}" aria-label="${label}" title="${label}" class="nav-item ${state.view === view ? 'active' : ''}">${icon(symbol)}<span>${label}</span>${view === 'networks' ? `<small>${state.networks.length}</small>` : ''}</button>`).join('')}</nav><div class="side-bottom"><div class="controller-mini"><span class="status-dot ${state.status ? '' : 'gray'}"></span><div><strong>${state.status ? '控制器已连接' : '控制器未连接'}</strong><code>${escape(state.status?.address ?? '等待连接')}</code></div></div><div class="side-actions">${button(icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'), 'theme', 'icon-btn', 'aria-label="切换明暗主题" title="切换明暗主题"')}<span>v0.4.3</span>${button(icon('logout'), 'logout', 'icon-btn', 'aria-label="退出登录" title="退出登录"')}</div></div></aside>`;
 }
 function errorBanner() { return state.error ? `<div class="error-banner" role="alert">${escape(state.error)} ${button('重试', 'refresh', 'small')}</div>` : ''; }
 function searchBox(placeholder = '搜索网络名称或 ID') { return `<div class="search-box">${icon('search')}<input aria-label="${placeholder}" id="search" type="search" placeholder="${placeholder}" value="${attr(state.query)}"></div>`; }
@@ -77,75 +79,7 @@ function networkSettings() {
 }
 function routesPanel() {
   const n = state.selected;
-  return `<div class="settings-layout"><section class="panel settings-panel"><div class="section-heading"><div><h2>托管路由</h2><p class="muted">将目的子网发送给网络成员。</p></div>${button(`${icon('plus')} 添加`, 'add-route', 'small')}</div>${n.routes?.length ? `<table><thead><tr><th>目标子网</th><th>网关</th><th></th></tr></thead><tbody>${n.routes.map((r, i) => `<tr><td><code>${escape(r.target)}</code></td><td><code>${escape(r.via ?? '直连')}</code></td><td>${button('删除', 'remove-route', 'small subtle', `data-index="${i}"`)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">暂无路由</p>'}<p class="table-note">默认路由还需在客户端允许 allowDefault。</p></section><section class="panel settings-panel"><div class="section-heading"><div><h2>自动分配地址池</h2><p class="muted">成员 IP 应落在对应的直连路由中。</p></div>${button(`${icon('plus')} 添加`, 'add-pool', 'small')}</div>${n.ipAssignmentPools?.length ? `<table><thead><tr><th>起始 IP</th><th>结束 IP</th><th></th></tr></thead><tbody>${n.ipAssignmentPools.map((p, i) => `<tr><td><code>${escape(p.ipRangeStart)}</code></td><td><code>${escape(p.ipRangeEnd)}</code></td><td>${button('删除', 'remove-pool', 'small subtle', `data-index="${i}"`)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">暂无地址池</p>'}</section></div>`;
-}
-function details() {
-  const n = state.selected;
-  if (!n) return empty('正在加载网络', '稍后即可管理成员与网络设置。');
-  return `<button class="back-link" data-action="networks">← 返回网络列表</button><div class="page-heading"><div><div class="heading-line"><h1>${escape(n.name || '未命名网络')}</h1>${badge(n.private ? '私有网络' : '公开网络', 'neutral')}</div><div class="network-id"><code>${escape(n.id)}</code>${button(icon('copy'), 'copy', 'icon-btn', `data-value="${attr(n.id)}" aria-label="复制网络 ID"`)}</div></div><div class="toolbar">${button(`${icon('terminal')} 加入指引`, 'join', '')}${button(`${icon('download')} 导出配置`, 'export', '')}</div></div><div class="tabs" role="tablist">${[['members', '成员管理', state.members.length], ['routes', '路由与地址池'], ['settings', '网络设置']].map(([tab, label, count]) => `<button role="tab" aria-selected="${state.tab === tab}" class="${state.tab === tab ? 'active' : ''}" data-action="tab" data-tab="${tab}">${label}${count === undefined ? '' : `<span>${count}</span>`}</button>`).join('')}</div><div role="tabpanel">${state.tab === 'members' ? membersPanel() : state.tab === 'routes' ? routesPanel() : networkSettings()}</div>`;
-}
-function peersPage() { return `<div class="page-heading"><div><p class="eyebrow">CONNECTIONS</p><h1>节点连接</h1><p class="muted">当前控制器的邻居节点与根节点路径。</p></div></div><div class="panel table-scroll"><table><thead><tr><th>节点 ID</th><th>角色</th><th>延迟</th><th>活动路径</th></tr></thead><tbody>${state.peers.map(p => `<tr><td><code>${escape(p.address)}</code></td><td>${badge(p.role, p.role === 'PLANET' ? 'blue' : 'neutral')}</td><td>${p.latency >= 0 ? `${Number(p.latency)} ms` : '未知'}</td><td>${(p.paths ?? []).filter(x => x.active).map(x => `<div class="path"><code>${escape(x.address)}</code>${x.preferred ? badge('优先路径', 'green') : ''}</div>`).join('') || '<span class="muted">暂无活动路径</span>'}</td></tr>`).join('')}</tbody></table>${state.peers.length ? '' : empty('暂无节点连接', '设备开始通信后，邻居节点会出现在这里。')}</div><p class="table-note">这里展示控制器自身的连接，不能代替所有客户端的连接诊断。</p>`; }
-const actions = { login: '管理员登录', 'account.update': '修改管理账号', 'network.create': '创建网络', 'network.update': '更新网络', 'network.delete': '删除网络', 'member.update': '更新成员', 'member.authorize': '授权成员', 'member.deauthorize': '撤销成员授权', 'member.delete': '删除成员' };
-function auditPage() { return `<div class="page-heading"><div><p class="eyebrow">ACTIVITY</p><h1>操作记录</h1><p class="muted">当前管理服务启动以来的最近 200 条成功操作。</p></div></div><div class="panel table-scroll"><table><thead><tr><th>时间</th><th>操作</th><th>目标</th></tr></thead><tbody>${state.audit.map(a => `<tr><td class="muted">${formatTime(a.time)}</td><td>${escape(actions[a.action] ?? a.action)}</td><td><code>${escape(a.target)}</code></td></tr>`).join('')}</tbody></table>${state.audit.length ? '' : empty('还没有操作记录', '通过面板完成的修改会显示在这里。')}</div><p class="table-note">生产模式同时保存轮转日志至服务器数据目录；其他工具直接修改控制器的操作不在此记录。</p>`; }
-function about() { const s = state.status; return `<div class="page-heading"><div><p class="eyebrow">CONTROLLER</p><h1>控制器信息</h1><p class="muted">管理服务与 ZeroTier 控制器的当前状态。</p></div></div><div class="panel settings-panel info-panel"><h2>服务状态</h2><dl><dt>控制器节点 ID</dt><dd><code>${escape(s?.address ?? '—')}</code></dd><dt>ZeroTier 版本</dt><dd>${escape(s?.version ?? '—')}</dd><dt>ZeroTier 上游连接</dt><dd>${s?.online ? badge('已连接', 'green') : badge('未连接', 'amber')}</dd><dt>TCP 回退</dt><dd>${s?.tcpFallbackActive ? '已启用' : '未启用'}</dd><dt>运行模式</dt><dd>${state.session.demo ? '演示模式（内存中的模拟数据）' : '实际控制器'}</dd><dt>持久化审计日志</dt><dd>${state.session.demo ? '演示模式不写磁盘' : s?.auditHealthy ? '写入正常' : '写入失败'}</dd><dt>管理面板版本</dt><dd>0.4.2</dd></dl><p class="muted">网络配置与成员数据保存在 ZeroTier 控制器中。完整备份还需保存控制器的 identity.secret 和 controller.d；面板的配置导出不能替代完整备份。</p><a href="https://github.com/SuzukiR1n/zerotier-control" target="_blank" rel="noopener noreferrer">GitHub 项目 ↗</a></div>`; }
-function planetPage() {
-  const p = state.planet;
-  const instructions = `<section class="panel settings-panel"><h2>让客户端连接你的 Planet</h2><ol class="client-steps"><li>下载 planet 文件，保存好原文件。</li><li>停止客户端的 ZeroTier 服务，将文件放到下方目录并重启服务。</li><li>在客户端加入网页创建的网络 ID，回到成员列表完成授权。</li><li>查看客户端 peers，确认根节点角色为 PLANET，地址为自己的服务器。</li></ol><dl class="client-paths"><dt>Windows</dt><dd><code>C:\\ProgramData\\ZeroTier\\One\\planet</code></dd><dt>Linux</dt><dd><code>/var/lib/zerotier-one/planet</code></dd><dt>macOS</dt><dd><code>/Library/Application Support/ZeroTier/One/planet</code></dd></dl><p class="table-note">需要管理员权限。官方 Android / iOS 客户端不提供导入自建 Planet 的界面；请使用支持该功能的客户端。</p></section>`;
-  return `<div class="page-heading"><div><p class="eyebrow">YOUR PLANET</p><h1>Planet 与客户端</h1><p class="muted">根节点连接文件与客户端接入指引。</p></div>${p?.available ? '<a class="btn primary" href="/api/planet/download">' + icon('download') + ' 下载 planet</a>' : ''}</div><div class="settings-layout"><section class="panel settings-panel info-panel"><h2>当前 Planet</h2>${p?.available ? `<dl><dt>ZeroTier 版本</dt><dd>${escape(p.zerotierVersion)}</dd><dt>根节点数量</dt><dd>${p.roots.length}</dd><dt>更新时间</dt><dd>${formatTime(p.timestamp)}</dd><dt>文件大小</dt><dd>${p.size} bytes</dd></dl>${p.roots.map(r => `<h3 class="subheading">根节点 <code>${escape(r.identity.split(':')[0])}</code></h3>${r.stableEndpoints.map(e => `<div class="path"><code>${escape(e)}</code></div>`).join('')}`).join('')}<h3 class="subheading">SHA-256</h3><code class="checksum">${escape(p.sha256)}</code><p class="muted">下载仅包含客户端连接文件，不包含节点私钥或 Planet 签名密钥。</p>` : `<p class="muted">${state.session.demo ? '演示模式使用模拟网络，不生成或下载 Planet 文件。实际部署后，此处会显示你的根节点与下载入口。' : '当前管理服务未配置 Planet 文件目录。'}</p>`}</section>${instructions}</div>`;
-}
-function render() {
-  if ((!state.session?.authenticated || state.session.mustChangeCredentials) && modal.open) modal.close();
-  if (!state.session?.authenticated) return login();
-  if (state.session.mustChangeCredentials) return login();
-  const names = { overview: '网络总览', networks: '全部网络', detail: '网络详情', peers: '节点连接', planet: 'Planet 与客户端', audit: '操作记录', about: '控制器信息', account: '账号设置' };
-  root.innerHTML = `${sidebar()}<div class="main-shell"><header class="topbar"><div class="breadcrumbs">工作空间 <span>/</span> <strong>${names[state.view]}</strong></div><div class="topbar-actions">${state.session.demo ? badge('演示模式', 'blue') : ''}<span class="refresh-time">${state.refreshed ? '更新于 ' + new Date(state.refreshed).toLocaleTimeString('zh-CN', { hour12: false }) : ''}</span>${button(icon('refresh'), 'refresh', 'icon-btn', 'aria-label="刷新数据" title="刷新数据"')}<div class="avatar" title="${attr(state.session.user)}" aria-label="当前用户 ${attr(state.session.user)}">${escape(state.session.user.slice(0, 1).toUpperCase())}</div></div></header>${state.session.demo ? '<div class="demo-bar">当前为交互演示，使用模拟数据。修改只影响此次演示，服务重启后重置。</div>' : ''}<main class="content" aria-busy="${state.busy}">${errorBanner()}${state.view === 'overview' ? overview() : state.view === 'networks' ? networksPage() : state.view === 'detail' ? details() : state.view === 'peers' ? peersPage() : state.view === 'audit' ? auditPage() : state.view === 'planet' ? planetPage() : state.view === 'account' ? accountPage() : about()}</main><footer class="page-footer"><span>ZeroTier Control</span><span>连接，自在掌握。</span></footer></div>`;
-}
-async function refresh() {
-  if (!state.session?.authenticated || state.session.mustChangeCredentials) return;
-  if (state.busy) return; state.busy = true;
-  try {
-    const [status, networks] = await Promise.all([api('/status'), api('/networks')]); state.status = status; state.networks = networks;
-    if (state.view === 'detail' && state.selected) { const [n, members] = await Promise.all([api(`/networks/${state.selected.id}`), api(`/networks/${state.selected.id}/members`)]); state.selected = n; state.members = members; }
-    if (state.view === 'peers') state.peers = await api('/peers');
-    if (state.view === 'planet') state.planet = await api('/planet');
-    if (state.view === 'audit') state.audit = await api('/audit');
-    state.error = ''; state.refreshed = Date.now();
-  } catch (e) { state.error = e.message; state.status = null; }
-  finally { state.busy = false; render(); }
-}
-async function openNetwork(id) {
-  const [n, members] = await Promise.all([api(`/networks/${id}`), api(`/networks/${id}/members`)]);
-  state.selected = n; state.members = members; state.view = 'detail'; state.tab = 'members'; state.query = ''; state.filter = 'all'; render();
-}
-function showModal(title, fields, onSubmit, label = '保存', danger = false) {
-  modal.innerHTML = `<form id="modal-form"><div class="modal-heading"><h2 id="modal-title">${escape(title)}</h2>${button(icon('close'), 'close', 'icon-btn', 'type="button" aria-label="关闭对话框"')}</div><div class="modal-body">${fields}<p id="modal-error" class="form-error" role="alert"></p></div><div class="modal-footer">${button('取消', 'close', '', 'type="button"')}<button type="submit" class="btn ${danger ? 'danger solid' : 'primary'}">${label}</button></div></form>`;
-  modal.querySelector('form').addEventListener('submit', async e => {
-    e.preventDefault(); const b = e.submitter; b.disabled = true;
-    try { await onSubmit(new FormData(e.target)); modal.close(); await refresh(); }
-    catch (error) { modal.querySelector('#modal-error').textContent = error.message; }
-    finally { b.disabled = false; }
-  });
-  modal.showModal();
-}
-async function patchNetwork(patch) { state.selected = await api(`/networks/${state.selected.id}`, 'PATCH', patch); toast('网络配置已保存'); }
-function confirmAction(title, message, onSubmit, expected) {
-  showModal(title, `<p>${message}</p>${expected ? field('输入 ID 确认', 'confirm', '', 'text', escape(expected)) : ''}`, async data => { await onSubmit(data); toast('操作已完成'); }, '确认', true);
-}
-async function doAction(action, el) {
-  const id = el.dataset.id, n = state.selected;
-  if (['overview', 'networks', 'peers', 'planet', 'audit', 'about', 'account'].includes(action)) { state.view = action; state.query = ''; render(); await refresh(); }
-  else if (action === 'refresh') await refresh();
-  else if (action === 'theme') { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('ztc-theme', theme); } catch { /* Storage may be disabled. */ } render(); }
-  else if (action === 'logout') { await api('/logout', 'POST', {}); state.session = { authenticated: false }; render(); }
-  else if (action === 'copy') { await navigator.clipboard.writeText(el.dataset.value); toast('已复制'); }
-  else if (action === 'open') await openNetwork(id);
-  else if (action === 'tab') { state.tab = el.dataset.tab; state.query = ''; render(); }
-  else if (action === 'filter') { state.filter = el.dataset.filter; render(); }
-  else if (action === 'close') modal.close();
-  else if (action === 'create') showModal('创建一个新网络', `<p class="muted">选择名称和 IPv4 子网。会自动配置直连路由与地址池。</p>${field('网络名称', 'name', '', 'text')}${field('IPv4 子网', 'cidr', '10.10.0.0/24', 'text', '请避免与本地局域网及其他网络重叠')}<div class="notice">${icon('shield')} 新网络默认私有，成员加入后需要授权。</div>`, async d => { const created = await api('/networks', 'POST', Object.fromEntries(d)); await openNetwork(created.id); toast('网络已创建'); }, '创建网络');
-  else if (action === 'authorize') { await api(`/networks/${n.id}/members/${id}`, 'PATCH', { authorized: true }); toast('成员已授权'); await refresh(); }
-  else if (action === 'deauthorize') confirmAction('撤销成员授权', `节点 <code>${escape(id)}</code> 将失去此网络的访问权限。`, () => api(`/networks/${n.id}/members/${id}`, 'PATCH', { authorized: false }));
-  else if (action === 'add-member' || action === 'edit-member') {
+  return `<div class="settings-layout"><section class="panel settings-panel"><div class="section-heading"><div><h2>托管路由</h2><p class="muted">将目的子网发送给网络成员。</p></div>${button(`${icon('plus')} 添加`, 'add-route', 'small')}</div>${n.routes?.length…4546 tokens truncated…'add-member' || action === 'edit-member') {
     const m = state.members.find(x => x.id === id) ?? {};
     showModal(action === 'add-member' ? '添加成员' : '编辑成员', `${action === 'add-member' ? field('节点 ID（10 位十六进制）', 'id') : `<p class="muted">节点 <code>${escape(id)}</code></p>`}${field('设备名称', 'name', m.name ?? '')}${field('固定 IP 地址', 'ips', (m.ipAssignments ?? []).join(', '), 'text', '多个地址用逗号分隔，留空交由自动分配；填写 IP，不含子网掩码')}${checkbox('允许访问网络', 'authorized', m.authorized)}${checkbox('允许以太网桥接', 'activeBridge', m.activeBridge)}${checkbox('关闭此成员的自动 IP 分配', 'noAutoAssignIps', m.noAutoAssignIps)}${id ? button('删除成员…', 'delete-member', 'danger small', `type="button" data-id="${attr(id)}"`) : ''}`, async d => {
       const mid = id ?? String(d.get('id')).trim().toLowerCase(); if (!/^[0-9a-f]{10}$/.test(mid)) throw new Error('节点 ID 必须为 10 位十六进制');
