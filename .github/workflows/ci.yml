@@ -28,9 +28,10 @@ jobs:
           bash -n deploy.sh
           bash -n test/docker-pull-fault.sh
           bash -n deploy/downloads.sh
-          shellcheck deploy.sh deploy/downloads.sh test/docker-pull-fault.sh test/downloads_test.sh test/download_images_test.sh planet/download-source.sh
+          shellcheck deploy.sh deploy/downloads.sh test/docker-pull-fault.sh test/downloads_test.sh test/download_images_test.sh test/git_download_test.sh planet/download-source.sh
           bash test/downloads_test.sh
           bash test/download_images_test.sh
+          bash test/git_download_test.sh
       - name: Validate Compose configurations
         run: |
           docker compose config --quiet

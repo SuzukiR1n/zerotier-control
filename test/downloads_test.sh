@@ -53,10 +53,11 @@ if (download_config); then fail 'Unsafe download config was accepted'; fi
 [[ ! -e "$ROOT/injected" ]]
 DOCKER_REGISTRY=docker.io GITHUB_PROXY=https://proxy.example.com/
 git() {
-  if [[ "$1" == remote ]]; then printf 'https://github.com/SuzukiR1n/zerotier-control.git\n';
+  if [[ "$1" == config ]]; then printf 'https://github.com/SuzukiR1n/zerotier-control.git\n';
+  elif [[ "${3:-}" == remote ]]; then printf 'https://proxy.example.com/https://github.com/SuzukiR1n/zerotier-control.git\n';
   else printf '%s\n' "$@" > "$ROOT/git-arguments"; fi
 }
 pull_project
-grep -Fx 'url.https://proxy.example.com/https://github.com/.insteadOf=https://github.com/' "$ROOT/git-arguments"
+grep -Fx 'url.https://proxy.example.com/https://github.com/SuzukiR1n/zerotier-control.git.insteadOf=https://github.com/SuzukiR1n/zerotier-control.git' "$ROOT/git-arguments"
 grep -Fx -- '--ff-only' "$ROOT/git-arguments"
 printf 'Download config validation, persistence and scoped Git acceleration passed.\n'

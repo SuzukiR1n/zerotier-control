@@ -132,12 +132,34 @@ prepare_images() {
   done
   fail '所有已配置的 Docker 线路都未能取得完整镜像。配置和数据已保留，请更换下载线路后运行 bash deploy.sh install。'
 }
-pull_project() {
+prepare_project_pull() {
+  PROJECT_PULL_ARGUMENTS=(pull --ff-only)
   if [[ -n "$GITHUB_PROXY" ]]; then
-    # Applies only to this invocation, not global Git settings or credentials.
-    local origin
-    origin="$(git remote get-url origin)"
-    [[ "$origin" =~ ^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]] || fail '仓库加速仅用于不带凭据的公开 GitHub HTTPS 地址。请使用官方 origin，或选择 GitHub 直连。'
-    git -c "url.${GITHUB_PROXY}https://github.com/.insteadOf=https://github.com/" pull --ff-only
-  else git pull --ff-only; fi
+    # get-url expands insteadOf; validate the stored URL before applying our own rewrite.
+    local origin address target resolved
+    origin="$(git config --get remote.origin.url)" || fail '未配置 origin；请先设置项目的 GitHub 仓库地址。'
+    address="${origin%/}"
+    if [[ "$address" == "${GITHUB_PROXY}https://github.com/"* ]]; then
+      address="${address#"$GITHUB_PROXY"}"
+    elif [[ "$address" == https://gh-proxy.org/https://github.com/* ]]; then
+      address="${address#https://gh-proxy.org/}"
+    fi
+    case "$address" in
+      git@github.com:*) address="https://github.com/${address#git@github.com:}";;
+      ssh://git@github.com/*) address="https://github.com/${address#ssh://git@github.com/}";;
+      ssh://git@github.com:22/*) address="https://github.com/${address#ssh://git@github.com:22/}";;
+    esac
+    [[ "$address" =~ ^https://github.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)$ ]] || fail '无法识别公开 GitHub origin。支持官方 HTTPS、GitHub SSH 和已配置的代理前缀；地址不能包含密码或 Token。请按 README 的更新失败恢复步骤操作。'
+    [[ "${BASH_REMATCH[1]}" != . && "${BASH_REMATCH[1]}" != .. && "${BASH_REMATCH[2]}" != . && "${BASH_REMATCH[2]}" != .. ]] || fail 'GitHub 仓库路径无效。'
+    target="${GITHUB_PROXY}${address}"
+    # An exact URL prefix takes precedence over a broader global insteadOf rule.
+    # Keep origin and branch tracking unchanged; do not double-prefix proxy clones.
+    PROJECT_PULL_ARGUMENTS=(-c "url.${target}.insteadOf=${origin}" pull --ff-only)
+    resolved="$(git "${PROJECT_PULL_ARGUMENTS[@]:0:2}" remote get-url origin)"
+    [[ "$resolved" == "$target" ]] || fail 'Git 地址改写与下载线路冲突。请按 README 的更新失败恢复步骤操作。'
+  fi
+}
+pull_project() {
+  prepare_project_pull
+  git "${PROJECT_PULL_ARGUMENTS[@]}"
 }

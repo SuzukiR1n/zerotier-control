@@ -229,12 +229,13 @@ install_stack() {
   info
 }
 update_stack() {
-  load_config
   if [[ "$SKIP_PULL" == false ]]; then
     command -v git >/dev/null 2>&1 || fail '需要 Git；离线源码使用 update --skip-pull。'
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail '当前目录不是 Git 仓库；使用 update --skip-pull 重建下载的源码。'
     if ! git diff --quiet || ! git diff --cached --quiet; then fail '有未提交的源码修改，请先保存修改；更新不会覆盖它们。'; fi
+    prepare_project_pull
   fi
+  load_config
   prepare_stack_images always
   backup
   if [[ "$SKIP_PULL" == false ]]; then pull_project; fi

@@ -265,7 +265,7 @@ Docker 配置作用于 **Node、Debian、Python 和 Nginx**。它直接指定本
 
 候补配置可以是 `auto`（上述公开源）、`none`（只使用指定源），或逗号分隔的域名，例如 `--docker-fallbacks backup.example.com,registry.example.com:5000`。旧配置使用上述公开域名且没有候补字段时会自动启用切换；自建源和官方直连默认不切换。选定源始终优先，重复地址只尝试一次。每个源必须备齐本次操作需要的镜像才会保存为新线路，GitHub 配置继续保留。直接运行 Compose 或 Docker 不执行脚本的候补逻辑。
 
-GitHub 配置作用于 ZeroTier 源码归档下载和脚本中的仓库更新。代理须支持 `前缀/https://github.com/...`；用于 `git pull` 时还需支持 Git Smart HTTP。仅对这次公开仓库拉取设置地址替换，不写全局 Git 配置。源码提交和 SHA-256 保持固定，代理返回错误页面或不同内容时停止编译。
+GitHub 配置作用于 ZeroTier 源码归档下载和脚本中的仓库更新。代理须支持 `前缀/https://github.com/...`；用于 `git pull` 时还需支持 Git Smart HTTP。更新支持官方 HTTPS、GitHub SSH、当前代理前缀和默认 GH-Proxy 的克隆地址，也支持末尾的 `/`。脚本读取尚未被 Git 全局地址规则改写的原始 `origin`，仅对本次拉取设置完整地址替换，保留 `origin` 和分支跟踪配置。仓库地址的检查在镜像准备、备份和停止服务之前完成。源码提交和 SHA-256 保持固定，代理返回错误页面或不同内容时停止编译。
 
 仓库尚未下载、或获取新版脚本也很慢时：
 
@@ -277,11 +277,22 @@ git clone https://gh-proxy.org/https://github.com/SuzukiR1n/zerotier-control.git
 git -c 'url.https://gh-proxy.org/https://github.com/.insteadOf=https://github.com/' pull --ff-only
 ```
 
-若首次通过代理克隆，建议随后将 `origin` 设为官方地址，以便下载线路切换时沿用新的配置：
+首次通过代理克隆后也可直接使用脚本更新。若希望 `origin` 始终使用官方地址，可手动设置：
 
 ```sh
 git remote set-url origin https://github.com/SuzukiR1n/zerotier-control.git
 ```
+
+### 更新失败恢复
+
+旧版脚本若在完成备份后提示“仓库加速仅用于不带凭据的公开 GitHub HTTPS 地址”，表示源码拉取尚未执行，容器已按备份前状态恢复。无需删除容器或数据。在现有项目目录通过明确的公开地址拉取新版，然后跳过旧脚本的仓库检查进行备份更新：
+
+```sh
+git pull --ff-only https://gh-proxy.org/https://github.com/SuzukiR1n/zerotier-control.git main &&
+bash deploy.sh update --skip-pull
+```
+
+如果 Git 提示有本地源码改动或无法快进，请先保存并处理这些改动；不要使用强制重置来覆盖。更新完成后在浏览器按 `Ctrl+F5`，网络 ID 的复制修复包含在 v0.4.3 中。上述命令不更改 `origin`，后续可继续使用部署脚本的“备份并更新”。
 
 恢复直连：`bash deploy.sh downloads --docker-registry docker.io --github-proxy direct`。手动 Compose 构建也可读取该文件：`docker compose --env-file .env --env-file .download.env up -d --build --wait`；直接运行 `docker build` 时传入 `--build-arg DOCKER_REGISTRY=镜像域名`，控制器构建还可传入 `--build-arg GITHUB_PROXY=https://代理前缀/`。
 
