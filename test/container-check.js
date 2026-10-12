@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 const base = 'http://127.0.0.1:8080', saved = '/tmp/zt-control-ci/state.json';
 const accountPath = '/tmp/zt-control-ci/web-account.json';
 const afterReset = process.argv.includes('--after-reset');
@@ -41,8 +42,12 @@ if (!afterRestart || afterReset) {
   assert.equal(session.mustChangeCredentials, false); assert.equal(session.user, credentials.username);
 }
 const status = await api('/status'); assert.equal(status.version, '1.16.2');
+const controllerCli = JSON.parse(execFileSync('docker', ['compose', '-p', 'control-ci', '-f', 'compose.yaml', '-f', 'deploy/compose.ci.yaml', 'exec', '-T', 'controller', 'zerotier-cli', '-j', 'info'], { encoding: 'utf8' }));
+assert.equal(controllerCli.address, status.address);
+assert.equal(controllerCli.version, '1.16.2');
 const planet = await api('/planet'); assert.equal(planet.available, true);
 assert.equal(planet.roots[0].identity.split(':')[0], status.address);
+assert.equal(planet.roots[0].stableEndpoints[0], '172.30.0.2/19993');
 const downloaded = await fetch(base + '/api/planet/download', { headers: { Cookie: cookie } });
 const bytes = Buffer.from(await downloaded.arrayBuffer());
 assert.equal(createHash('sha256').update(bytes).digest('hex'), planet.sha256);

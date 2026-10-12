@@ -32,6 +32,18 @@ def save(path, content, mode=0o600):
     temp.replace(path)
 
 
+def management_token(path):
+    # Native zerotier-cli forwards file contents verbatim as an HTTP header.
+    # Keep the existing token value, but remove surrounding file whitespace.
+    existing = path.read_bytes() if path.exists() else None
+    token = existing.strip() if existing is not None else secrets.token_hex(32).encode("ascii")
+    if not token or any(char <= 32 or char >= 127 for char in token):
+        raise ValueError("控制器管理密钥格式错误，请恢复 authtoken.secret 备份")
+    if existing != token:
+        save(path, token)
+    return token
+
+
 def prepare(regenerate=False):
     os.umask(0o077)
     home = Path(os.getenv("ZT_HOME", "/var/lib/zerotier-one"))
@@ -68,9 +80,7 @@ def prepare(regenerate=False):
     save(public / "planet", planet.read_bytes(), 0o644)
     save(public / "planet.json", json.dumps(info, ensure_ascii=False, indent=2), 0o644)
     token = home / "authtoken.secret"
-    if not token.exists():
-        save(token, secrets.token_hex(32) + "\n")
-    save(access / "authtoken.secret", token.read_bytes())
+    save(access / "authtoken.secret", management_token(token))
     conf = home / "local.conf"
     local = json.loads(conf.read_text()) if conf.exists() else {}
     local.setdefault("settings", {}).update({"primaryPort": port, "secondaryPort": 0, "tertiaryPort": 0, "portMappingEnabled": False, "allowTcpFallbackRelay": False})

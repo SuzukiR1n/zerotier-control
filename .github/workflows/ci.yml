@@ -62,7 +62,7 @@ jobs:
           done
           docker image rm 127.0.0.1:5000/library/nginx:stable-alpine
           sudo bash deploy.sh downloads --docker-registry 127.0.0.1:5001 --docker-fallbacks 127.0.0.1:5000 --github-proxy direct
-          sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --ip 172.30.0.2 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
+          sudo env PATH="/tmp/zt-control-ci/bin:$PATH" bash deploy.sh install --ip 172.30.0.2 --zt-port 19993 --web-port 8080 --access local --project-name control-ci --compose-file deploy/compose.ci.yaml
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/attempts)" -eq 3
           test "$(sudo cat /tmp/zt-control-ci/pull-fault/primary-attempts | wc -l)" -eq 3
           sudo grep -Fx 'DOCKER_REGISTRY=127.0.0.1:5000' .download.env

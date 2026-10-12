@@ -4,7 +4,7 @@
 
 **自建 Planet + ZeroTier 1.16.2 控制器 + 全新中文 Web 管理界面。** 在空服务器上独立部署，首次启动生成自己的身份和 Planet 文件，随后在网页创建网络、授权成员。
 
-**v0.4.1 · 用户名登录与首次强制修改 · 镜像源失败自动切换 · 可配置下载加速 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
+**v0.4.2 · 用户名登录与首次强制修改 · 镜像源失败自动切换 · 可配置下载加速 · 交互式部署脚本 · Docker Compose · 手机适配 · 明暗主题 · 无第三方 npm 运行依赖**
 
 ZeroTier 当前锁定官方稳定版 [1.16.2](https://github.com/zerotier/ZeroTierOne/releases/tag/1.16.2)，源码提交与下载 SHA-256 均固定在 `Dockerfile.zerotier` 中。新版本将本地控制器移到了 `nonfree/`，构建显式启用 `ZT_NONFREE=1`。使用文件数据库，不需要 PostgreSQL、Redis 或 Central 账号。
 
@@ -157,6 +157,16 @@ sudo zerotier-cli peers
 
 Windows 使用管理员权限停止并重启 ZeroTier One 服务。官方 Android/iOS 应用不提供导入自建 Planet 的界面，须使用支持该功能的客户端；该仓库不包含移动端客户端。
 
+### 加入网络后一直等待配置，网页没有成员
+
+`REQUESTING_CONFIGURATION` 只说明尚未取得网络配置，不能仅凭这个状态判定版本不兼容。客户端执行 `zerotier-cli peers`，对照网页“Planet 与客户端”的根节点 ID、服务器 IP 和 UDP 端口；`ONLINE` 不能单独证明已经连接指定的私有根节点。网络 ID 的前 10 位须与网页控制器节点 ID 相同。
+
+如果看到的是官方根节点，检查 Planet 是否放进正在运行的服务数据目录，并在替换时先停止服务、替换后再启动。若根节点正确却没有可用路径，检查服务器实际配置的 UDP 端口及客户端网络。能连到控制器但网页没有成员时，检查成员筛选和刷新，再读取控制器成员接口区分记录缺失与网页显示问题。不要删除身份文件或重置 Planet 来试错。
+
+也可在客户端 `zerotier-cli info` 中取得 10 位节点 ID，在网络“成员管理 → 添加成员”中登记并授权。预先授权仍需要客户端能到达控制器，不能绕过连接故障。
+
+服务器的 CLI 查询须在项目目录使用 `docker compose exec controller zerotier-cli info`；其他目录可用 `docker exec 你的控制器容器名 zerotier-cli info`。`401 info {}` 是本地管理接口鉴权失败，与客户端 UDP 接入分开排查。v0.4.2 将管理密钥文件保存为原生 CLI 使用的无换行格式；升级时仅清理旧文件周围空白，密钥值、Planet 和节点身份继续复用。
+
 ## 域名和 HTTPS
 
 安装时可直接选择“已有 HTTPS 反向代理”，填写域名。在服务器的 HTTPS 反向代理中，将域名转发到 `127.0.0.1:3443`（或自己的 Web 端口），保留原始 `Host`。
@@ -180,7 +190,7 @@ WEB_BIND_ADDRESS=127.0.0.1
 | `zerotier-data` | 节点身份、Planet 签名密钥、Planet、`controller.d` 网络和成员配置 |
 | `planet-files` | 客户端 Planet 及公开元数据 |
 | `controller-access` | 控制器本地 API 密钥，只提供给管理后端 |
-| `control-data` | 网页操作日志 |
+| `control-data` | 管理账号、密码哈希、网页操作日志 |
 | `control-socket` | 服务间通信 socket |
 
 重启或重建容器会复用身份、签名密钥和 Planet。不要删除数据卷。`docker compose down` 保留卷；`down -v` 会删除部署数据。
@@ -311,7 +321,7 @@ CI 使用隔离的测试地址和随机运行时身份，不证明实际公网�
 
 ## 版本范围
 
-v0.4.1 提供下载线路配置、部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
+v0.4.2 提供下载线路配置、部署脚本、单个根节点和控制器、单个管理员。暂未提供多个控制器切换、多用户权限、Flow Rules DSL 编辑、Moon 管理或自动备份恢复。修改普通网络设置只发送对应字段，保留已有高级配置。
 
 成员列表显示授权状态，不是实时在线表；节点连接页显示控制器自身的 `/peer` 路径。删除正在申请加入的成员后，该设备仍可能再次出现在待授权列表。
 
