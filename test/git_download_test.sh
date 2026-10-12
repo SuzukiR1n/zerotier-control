@@ -8,18 +8,18 @@ trap '[[ "$ROOT" == "$TEST_TEMP_BASE"/zt-git-download.* ]] && rm -rf -- "$ROOT"'
 fail() { printf '%s\n' "$*" >&2; exit 22; }
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$ROOT/global.config"
 : > "$GIT_CONFIG_GLOBAL"
-command git init -q "$ROOT/repo"
-cd "$ROOT/repo"
-command git remote add origin https://github.com/SuzukiR1n/zerotier-control.git
-# This fixture is the only global configuration file Git reads during the test.
-command git config --global url.https://old-proxy.example/https://github.com/.insteadOf https://github.com/
-GITHUB_PROXY=https://proxy.example.com/
 # Use real Git for reading/rewrite checks; intercept only the final network pull.
 git() {
   if [[ "$1" == pull || ( "$1" == -c && "${3:-}" == pull ) ]]; then
     printf '%s\n' "$@" > "$ROOT/pull-arguments"
   else command git "$@"; fi
 }
+command git init -q "$ROOT/repo"
+cd "$ROOT/repo"
+command git remote add origin https://github.com/SuzukiR1n/zerotier-control.git
+# This fixture is the only global configuration file Git reads during the test.
+command git config --global url.https://old-proxy.example/https://github.com/.insteadOf https://github.com/
+GITHUB_PROXY=https://proxy.example.com/
 for address in \
   https://github.com/SuzukiR1n/zerotier-control.git \
   https://github.com/SuzukiR1n/zerotier-control \
