@@ -5,6 +5,7 @@ import { chmod, lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promis
 import { dirname, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isPasswordHash, passwordHash } from '../server/account.js';
+import { cleanupPlan, removeProjectData } from './deploy-cleanup.js';
 
 const keys = ['COMPOSE_PROJECT_NAME', 'PLANET_ENDPOINTS', 'ZT_PORT', 'WEB_PORT', 'WEB_BIND_ADDRESS', 'ADMIN_PASSWORD_PATH', 'PUBLIC_ORIGIN', 'COOKIE_SECURE'];
 function port(value, name) {
@@ -15,6 +16,22 @@ function address(value) {
   const kind = isIP(value);
   if (!kind || value.includes('%') || (kind === 4 && (value === '0.0.0.0' || (Number(value.split('.')[0]) >= 224 && Number(value.split('.')[0]) <= 239))) || (kind === 6 && (/^ff/i.test(value) || new URL(`http://[${value}]`).hostname === '[::]'))) {
     throw new Error('请输入有效的 IPv4 / IPv6 地址，不能使用域名、全零地址或多播地址');
+  }
+  return value;
+}
+export function detectedAddress(value, family) {
+  value = String(value).trim();
+  const kind = isIP(value);
+  if (kind !== Number(family)) throw new Error('检测结果不是指定类型的 IP 地址');
+  if (kind === 4) {
+    const [a, b, c] = value.split('.').map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && (b === 168 || (b === 0 && (c === 0 || c === 2)))) || (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+        (a === 203 && b === 0 && c === 113)) throw new Error('检测结果不是公网地址');
+  } else {
+    const normalized = new URL(`http://[${value}]`).hostname.slice(1, -1);
+    if (!/^[23][0-9a-f]{3}:/i.test(normalized) || /^2001:db8:/i.test(normalized)) throw new Error('检测结果不是公网地址');
   }
   return value;
 }
@@ -113,7 +130,10 @@ export async function ensurePassword(root, config, reset = false) {
 }
 async function main() {
   const [command, ...args] = process.argv.slice(2), root = process.cwd();
-  if (command === 'init') {
+  if (command === 'detected-ip') {
+    if (args.length !== 2 || !['4', '6'].includes(args[1])) throw new Error('公网地址检测参数错误');
+    console.log(detectedAddress(args[0], args[1]));
+  } else if (command === 'init') {
     const options = {};
     for (let i = 0; i < args.length; i += 2) {
       const key = args[i]?.slice(2);
@@ -125,7 +145,18 @@ async function main() {
     console.log('部署配置已保存到 .env。');
   } else {
     const config = parseConfig(await readFile(resolve(root, '.env'), 'utf8'));
-    if (command === 'env') console.log(keys.map(key => `${key}=${config[key]}`).join('\n'));
+    if (command === 'cleanup-plan' || command === 'cleanup-remove') {
+      if (args.length !== (command === 'cleanup-remove' ? 3 : 2) || !/^\.cleanup-compose\.[A-Za-z0-9]+$/.test(args[0])) throw new Error('数据清理参数错误');
+      const composition = JSON.parse(await readFile(resolve(root, args[0]), 'utf8'));
+      const plan = await cleanupPlan(root, composition, config.COMPOSE_PROJECT_NAME, args[1]);
+      if (command === 'cleanup-plan') {
+        for (const volume of plan.volumes) console.log(`VOLUME=${volume}`);
+        for (const path of plan.paths) console.log(`PATH=${path}`);
+      } else {
+        if (args[2] !== config.COMPOSE_PROJECT_NAME) throw new Error('尚未确认当前部署名称');
+        await removeProjectData(root);
+      }
+    } else if (command === 'env') console.log(keys.map(key => `${key}=${config[key]}`).join('\n'));
     else if (command === 'password' && (!args.length || (args.length === 1 && args[0] === '--reset'))) {
       await ensurePassword(root, config, args.includes('--reset'));
       console.log(`初始密码哈希已保存到 ${config.ADMIN_PASSWORD_PATH}（权限 600）。`);

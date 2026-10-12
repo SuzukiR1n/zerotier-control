@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, symlink, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensurePassword, installationConfig, parseConfig, validateConfig } from '../scripts/deploy-config.js';
+import { detectedAddress, ensurePassword, installationConfig, parseConfig, validateConfig } from '../scripts/deploy-config.js';
 import { isPasswordHash, matches } from '../server/account.js';
 
 test('installer config supports public IP, local tunnel and HTTPS with consistent binding/cookies', () => {
@@ -20,6 +20,16 @@ test('installer config supports public IP, local tunnel and HTTPS with consisten
   assert.equal(proxy.COOKIE_SECURE, 'true');
   assert.equal(proxy.WEB_BIND_ADDRESS, '127.0.0.1');
   assert.throws(() => installationConfig({ ip: '203.0.113.20', access: 'proxy' }));
+});
+
+test('automatic IP detection accepts plain public addresses and refuses private, malformed or wrong-family results', () => {
+  assert.equal(detectedAddress('8.8.8.8\n', '4'), '8.8.8.8');
+  assert.equal(detectedAddress('192.0.5.10', '4'), '192.0.5.10');
+  assert.equal(detectedAddress('2001:4860:4860::8888', '6'), '2001:4860:4860::8888');
+  for (const ip of ['<html>blocked</html>', '8.8.8.8\n1.1.1.1', '127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '100.64.0.1', '169.254.1.1', '203.0.113.10', '255.255.255.255']) assert.throws(() => detectedAddress(ip, '4'));
+  for (const ip of ['::', '::1', 'fd00::1', 'fe80::1', 'ff02::1', '2001:db8::1', '::ffff:8.8.8.8']) assert.throws(() => detectedAddress(ip, '6'));
+  assert.throws(() => detectedAddress('8.8.8.8', '6'));
+  assert.throws(() => detectedAddress('2001:4860::1', '4'));
 });
 test('installer refuses malformed endpoints, unsafe env values and credential paths', () => {
   const valid = installationConfig({ ip: '203.0.113.20' });

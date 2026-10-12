@@ -8,6 +8,7 @@ COMMAND="${1:-menu}"
 [[ $# -eq 0 ]] || shift
 IP='' IPV6='' ZT_PORT_OPTION='' WEB_PORT_OPTION='' ACCESS='' ORIGIN='' PROJECT=''
 SKIP_PULL=false
+DELETE_DATA=false CONFIRM_DELETE='' CLEANUP_STARTED=false CLEANUP_PLAN_FILE=''
 DOCKER_REGISTRY_OPTION='' DOCKER_FALLBACKS_OPTION='' GITHUB_PROXY_OPTION='' DOWNLOAD_OPTIONS=false
 EXTRA_COMPOSE=()
 RESTART_AFTER_BACKUP=()
@@ -25,6 +26,7 @@ ZeroTier Control 部署工具
   bash deploy.sh reset-password            重置账号为 admin / admin 并要求首次修改
   bash deploy.sh logs                      查看最近日志并持续跟踪
   bash deploy.sh uninstall                 移除容器，保留配置和全部数据卷
+  bash deploy.sh uninstall --delete-data   彻底卸载，确认后删除当前部署全部数据
   bash deploy.sh downloads                 配置 Docker 与 GitHub 下载加速
 
 无人值守首次安装示例：
@@ -38,12 +40,13 @@ ZeroTier Control 部署工具
   --docker-fallbacks auto|none|域名列表  自动切换公开源 / 单一源 / 逗号分隔候补
   --github-proxy HTTPS前缀     GitHub 源码和仓库加速；direct 表示直连
   update --skip-pull          只备份并重建当前源码，不拉取 Git
+  uninstall --delete-data --confirm-delete 部署名称  明确确认无人值守数据删除
 已有 .env 时会沿用配置；修改 IP / 端口须按 README 的 Planet 更新流程操作。
 HELP
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file|--docker-registry|--docker-fallbacks|--github-proxy)
+    --ip|--ipv6|--zt-port|--web-port|--access|--origin|--project-name|--compose-file|--docker-registry|--docker-fallbacks|--github-proxy|--confirm-delete)
       [[ $# -ge 2 && -n "$2" ]] || fail "$1 缺少值"
       case "$1" in
         --ip) IP="$2";; --ipv6) IPV6="$2";; --zt-port) ZT_PORT_OPTION="$2";;
@@ -52,9 +55,11 @@ while [[ $# -gt 0 ]]; do
         --docker-registry) DOCKER_REGISTRY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
         --docker-fallbacks) DOCKER_FALLBACKS_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
         --github-proxy) GITHUB_PROXY_OPTION="$2"; DOWNLOAD_OPTIONS=true;;
+        --confirm-delete) CONFIRM_DELETE="$2";;
       esac
       shift 2;;
     --skip-pull) SKIP_PULL=true; shift;;
+    --delete-data) DELETE_DATA=true; shift;;
     --help|-h) usage; exit 0;;
     *) fail "未知参数：$1。使用 bash deploy.sh help 查看用法。";;
   esac
@@ -66,18 +71,28 @@ case "$COMMAND" in menu|install|update|status|planet|backup|reset-password|logs|
 [[ "$ROOT" != *,* ]] || fail '项目目录不能包含逗号（Docker 挂载路径限制）。'
 # shellcheck source=deploy/downloads.sh
 . "$ROOT/deploy/downloads.sh"
+# shellcheck source=deploy/public-ip.sh
+. "$ROOT/deploy/public-ip.sh"
 
 compose() { docker compose --project-directory "$ROOT" --env-file "$ROOT/.env" -f "$ROOT/compose.yaml" "${EXTRA_COMPOSE[@]}" "$@"; }
 cleanup() {
   local code=$?
+  if [[ "$CLEANUP_PLAN_FILE" == "$ROOT"/.cleanup-compose.* ]]; then rm -f -- "$CLEANUP_PLAN_FILE"; fi
   if [[ ${#RESTART_AFTER_BACKUP[@]} -gt 0 ]]; then
     printf '\n正在恢复备份前运行的服务……\n' >&2
     compose start "${RESTART_AFTER_BACKUP[@]}" || true
   fi
   return "$code"
 }
+report_error() {
+  if [[ "$CLEANUP_STARTED" == true ]]; then
+    printf '\n彻底卸载未完成（脚本第 %s 行）。部分数据可能已删除，请检查容器、数据卷和列出的项目路径。\n' "$1" >&2
+  else
+    printf '\n操作失败（脚本第 %s 行）。已有配置和数据已保留；可运行 bash deploy.sh logs 查看服务日志。\n' "$1" >&2
+  fi
+}
 trap cleanup EXIT
-trap 'printf "\n操作失败（脚本第 %s 行）。已有配置和数据已保留；可运行 bash deploy.sh logs 查看服务日志。\n" "$LINENO" >&2' ERR
+trap 'report_error "$LINENO"' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -150,14 +165,10 @@ load_config() {
   compose config --quiet
 }
 configure() {
-  local detected='' answer
+  local answer
   if [[ -z "$IP" ]]; then
     [[ -t 0 ]] || fail '无人值守安装需要 --ip 公网IP。'
-    if command -v curl >/dev/null 2>&1; then
-      detected="$(curl --ipv4 --connect-timeout 3 --max-time 5 --fail --silent https://api.ipify.org || true)"
-    fi
-    read -r -p "服务器公网 IPv4 / IPv6${detected:+ [$detected]}：" IP
-    IP="${IP:-$detected}"
+    choose_public_ip || fail '公网 IP 配置已取消。'
     read -r -p '附加公网 IPv6（可留空）：' IPV6
     read -r -p 'ZeroTier UDP 端口 [9993]：' ZT_PORT_OPTION
     read -r -p 'Web 管理端口 [3443]：' WEB_PORT_OPTION
@@ -256,14 +267,78 @@ reset_password() {
   printf '管理账号已重置为 admin / admin，旧会话已失效；登录后必须修改两项。\n'
   info
 }
+volume_owned_by_project() {
+  local owner
+  owner="$(docker volume inspect --format '{{ index .Labels "com.docker.compose.project" }}' "$1")"
+  [[ "$owner" == "$COMPOSE_PROJECT_NAME" ]] || fail "数据卷 $1 不属于当前部署，已停止清理。"
+}
+uninstall_stack() {
+  if [[ "$DELETE_DATA" == false ]]; then
+    compose down
+    printf '容器已移除。配置、密码和数据卷已保留；运行 install 可恢复。\n'
+    return
+  fi
+  local values key value listing volume confirmation repeat_values remaining
+  local declared_volumes=() paths=() owned_volumes=()
+  CLEANUP_PLAN_FILE="$(mktemp "$ROOT/.cleanup-compose.XXXXXX")"
+  compose config --format json > "$CLEANUP_PLAN_FILE"
+  values="$(helper cleanup-plan "${CLEANUP_PLAN_FILE##*/}" "$ROOT")"
+  while IFS='=' read -r key value; do
+    case "$key" in
+      VOLUME) declared_volumes+=("$value");;
+      PATH) paths+=("$value");;
+      *) fail '清理工具返回了未知字段。';;
+    esac
+  done <<< "$values"
+  listing="$(docker volume ls --format '{{.Name}}')"
+  for volume in "${declared_volumes[@]}"; do
+    if grep -Fxq -- "$volume" <<< "$listing"; then volume_owned_by_project "$volume"; fi
+  done
+  listing="$(docker volume ls --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Name}}')"
+  if [[ -n "$listing" ]]; then mapfile -t owned_volumes <<< "$listing"; fi
+  printf '\n彻底卸载部署：%s\n' "$COMPOSE_PROJECT_NAME"
+  printf '将删除容器、Planet 和签名私钥、节点身份、网络成员、Web 账号、配置、导出文件及项目内全部备份。\n'
+  for volume in "${owned_volumes[@]}"; do printf '  数据卷：%s\n' "$volume"; done
+  for value in "${paths[@]}"; do printf '  项目路径：%s/%s\n' "$ROOT" "$value"; done
+  printf '删除后无法从项目内恢复；重新安装会生成新的 Planet，客户端需要重新替换文件。\n'
+  if [[ -n "$CONFIRM_DELETE" ]]; then
+    [[ "$CONFIRM_DELETE" == "$COMPOSE_PROJECT_NAME" ]] || fail '确认的部署名称不匹配，未执行删除。'
+  else
+    [[ -t 0 ]] || fail '无人值守删除需要 --delete-data --confirm-delete 当前部署名称。'
+    read -r -p "输入 DELETE $COMPOSE_PROJECT_NAME 确认删除（其他输入取消）：" confirmation || fail '已取消删除。'
+    [[ "$confirmation" == "DELETE $COMPOSE_PROJECT_NAME" ]] || fail '已取消删除，数据已保留。'
+  fi
+  # Recheck paths and volume ownership after the user confirms, before the first mutation.
+  repeat_values="$(helper cleanup-plan "${CLEANUP_PLAN_FILE##*/}" "$ROOT")"
+  [[ "$repeat_values" == "$values" ]] || fail '清理范围发生变化，请重新运行并确认。'
+  for volume in "${owned_volumes[@]}"; do volume_owned_by_project "$volume"; done
+  CLEANUP_STARTED=true
+  compose down --volumes --remove-orphans
+  listing="$(docker volume ls --format '{{.Name}}')"
+  for volume in "${owned_volumes[@]}"; do
+    if grep -Fxq -- "$volume" <<< "$listing"; then
+      volume_owned_by_project "$volume"
+      docker volume rm -- "$volume"
+    fi
+  done
+  remaining="$(docker volume ls --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Name}}')"
+  [[ -z "$remaining" ]] || fail '检测到新的或未能删除的数据卷，请重新检查并确认；项目文件清理尚未执行。'
+  remaining="$(docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Names}}')"
+  [[ -z "$remaining" ]] || fail '当前部署仍有容器，请检查后重试；项目文件清理尚未执行。'
+  helper cleanup-remove "${CLEANUP_PLAN_FILE##*/}" "$ROOT" "$COMPOSE_PROJECT_NAME"
+  printf '彻底卸载完成：当前部署的容器、数据卷、配置、密码、导出文件及项目内备份已删除。\n'
+}
 menu() {
   local selection
   printf '\nZeroTier Control · 私有 Planet + 新版 ZeroTier + 中文 Web\n\n'
-  printf '1. 安装 / 启动\n2. 备份并更新\n3. 查看信息\n4. 导出 Planet\n5. 完整备份\n6. 重置管理账号\n7. 查看日志\n8. 移除容器（保留全部数据）\n9. 配置下载加速\n0. 退出\n\n'
+  printf '1. 安装 / 启动\n2. 备份并更新\n3. 查看信息\n4. 导出 Planet\n5. 完整备份\n6. 重置管理账号\n7. 查看日志\n8. 移除容器（保留全部数据）\n9. 配置下载加速\n10. 彻底卸载（删除全部数据）\n0. 退出\n\n'
   read -r -p '请选择操作：' selection
-  case "$selection" in 1) COMMAND=install;; 2) COMMAND=update;; 3) COMMAND=status;; 4) COMMAND=planet;; 5) COMMAND=backup;; 6) COMMAND=reset-password;; 7) COMMAND=logs;; 8) COMMAND=uninstall;; 9) COMMAND=downloads;; 0) exit 0;; *) fail '请输入 0–9。';; esac
+  case "$selection" in 1) COMMAND=install;; 2) COMMAND=update;; 3) COMMAND=status;; 4) COMMAND=planet;; 5) COMMAND=backup;; 6) COMMAND=reset-password;; 7) COMMAND=logs;; 8) COMMAND=uninstall;; 9) COMMAND=downloads;; 10) COMMAND=uninstall; DELETE_DATA=true;; 0) exit 0;; *) fail '请输入 0–10。';; esac
 }
 if [[ "$COMMAND" == menu ]]; then menu; fi
+if [[ "$DELETE_DATA" == true || -n "$CONFIRM_DELETE" ]]; then
+  [[ "$COMMAND" == uninstall && "$DELETE_DATA" == true ]] || fail '数据删除参数只能用于 uninstall --delete-data。'
+fi
 download_config
 download_options
 if [[ "$COMMAND" == downloads || "$DOWNLOAD_OPTIONS" == true ]]; then configure_downloads; fi
@@ -276,6 +351,6 @@ case "$COMMAND" in
     case "$COMMAND" in
       status) info;; planet) export_planet;; backup) backup;; reset-password) reset_password;;
       logs) compose logs --tail 100 -f;;
-      uninstall) compose down; printf '容器已移除。配置、密码和数据卷已保留；运行 install 可恢复。\n';;
+      uninstall) uninstall_stack;;
     esac;;
 esac
