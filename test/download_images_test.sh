@@ -44,7 +44,7 @@ configure_test partial partial.example.com,good.example.com
 prepare_images missing node:24-bookworm-slim debian:bookworm-slim python:3.13-slim-bookworm nginx:stable-alpine
 [[ "$DOCKER_REGISTRY" == good.example.com ]]
 [[ "$(wc -l < "$ROOT/pulls")" -eq 12 ]]
-! grep -Fx 'partial.example.com/library/nginx:stable-alpine' "$ROOT/pulls"
+if grep -Fx 'partial.example.com/library/nginx:stable-alpine' "$ROOT/pulls"; then fail 'An incomplete source must stop before the next image'; fi
 configure_test failed good.example.com
 if (prepare_images missing nginx:stable-alpine); then fail 'All failed sources must stop deployment'; fi
 cmp "$ROOT/.download.env" "$ROOT/original"
