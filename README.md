@@ -157,16 +157,6 @@ sudo zerotier-cli peers
 
 Windows 使用管理员权限停止并重启 ZeroTier One 服务。官方 Android/iOS 应用不提供导入自建 Planet 的界面，须使用支持该功能的客户端；该仓库不包含移动端客户端。
 
-### 加入网络后一直等待配置，网页没有成员
-
-`REQUESTING_CONFIGURATION` 只说明尚未取得网络配置，不能仅凭这个状态判定版本不兼容。客户端执行 `zerotier-cli peers`，对照网页“Planet 与客户端”的根节点 ID、服务器 IP 和 UDP 端口；`ONLINE` 不能单独证明已经连接指定的私有根节点。网络 ID 的前 10 位须与网页控制器节点 ID 相同。
-
-如果看到的是官方根节点，检查 Planet 是否放进正在运行的服务数据目录，并在替换时先停止服务、替换后再启动。若根节点正确却没有可用路径，检查服务器实际配置的 UDP 端口及客户端网络。能连到控制器但网页没有成员时，检查成员筛选和刷新，再读取控制器成员接口区分记录缺失与网页显示问题。不要删除身份文件或重置 Planet 来试错。
-
-也可在客户端 `zerotier-cli info` 中取得 10 位节点 ID，在网络“成员管理 → 添加成员”中登记并授权。预先授权仍需要客户端能到达控制器，不能绕过连接故障。
-
-服务器的 CLI 查询须在项目目录使用 `docker compose exec controller zerotier-cli info`；其他目录可用 `docker exec 你的控制器容器名 zerotier-cli info`。`401 info {}` 是本地管理接口鉴权失败，与客户端 UDP 接入分开排查。v0.4.2 将管理密钥文件保存为原生 CLI 使用的无换行格式；升级时仅清理旧文件周围空白，密钥值、Planet 和节点身份继续复用。
-
 ## 域名和 HTTPS
 
 安装时可直接选择“已有 HTTPS 反向代理”，填写域名。在服务器的 HTTPS 反向代理中，将域名转发到 `127.0.0.1:3443`（或自己的 Web 端口），保留原始 `Host`。
@@ -295,18 +285,6 @@ bash deploy.sh update --skip-pull
 如果 Git 提示有本地源码改动或无法快进，请先保存并处理这些改动；不要使用强制重置来覆盖。更新完成后在浏览器按 `Ctrl+F5`，网络 ID 的复制修复包含在 v0.4.3 中。上述命令不更改 `origin`，后续可继续使用部署脚本的“备份并更新”。
 
 恢复直连：`bash deploy.sh downloads --docker-registry docker.io --github-proxy direct`。手动 Compose 构建也可读取该文件：`docker compose --env-file .env --env-file .download.env up -d --build --wait`；直接运行 `docker build` 时传入 `--build-arg DOCKER_REGISTRY=镜像域名`，控制器构建还可传入 `--build-arg GITHUB_PROXY=https://代理前缀/`。
-
-### 下载中断后的继续安装
-
-如果出现 `connection reset by peer`、`unexpected EOF`、`short read` 或超时，说明 Docker 没有取得完整下载结果；具体原因可能在网络、代理或镜像源。脚本会先准备 Node、Debian、Python 和 Nginx 镜像，再构建并启动服务。每个缺失镜像在当前源最多尝试 3 次，间隔 5 秒和 10 秒；仍失败时切换候补源。取消操作会立即停止，所有线路失败时保留下载配置、数据和已有容器。更新也会在备份和停止服务前检查镜像。
-
-配置下载加速后，在项目目录继续安装：
-
-```sh
-bash deploy.sh install
-```
-
-旧版脚本遇到某个镜像站连接重置时，可以先运行上面的 `downloads` 命令换源，再运行 `install`。已有完整镜像层会复用，不用重新填写公网 IP。若所有线路持续失败，需要检查服务器到这些镜像站的网络；仅设置当前终端的代理不一定影响 Docker 拉取。[Docker 镜像拉取与代理说明](https://docs.docker.com/reference/cli/docker/image/pull/)
 
 ## 仅体验 Web 界面
 
